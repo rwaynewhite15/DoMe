@@ -16,14 +16,14 @@ Calendar, plus a fair, customizable point system.
 - ✏️ **Editable until done** — points on any occurrence can be edited until it's
   completed, then they lock. Recurring tasks have a default point value, and each
   individual occurrence can be edited independently.
-- 📧 **Email** (via [Resend](https://resend.com)) — a notification when a task you
-  assigned is completed, plus a daily points digest.
+- 📧 **Email** (via Gmail SMTP) — a notification when a task you assigned is completed,
+  plus a daily points digest.
 - 📱 **Mobile-first & installable** — responsive on any device and installable as a PWA.
 
 ## Tech stack
 
 Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · Prisma + PostgreSQL (Neon) ·
-custom JWT auth (jose + bcryptjs) · dnd-kit · rrule · Recharts · Resend.
+custom JWT auth (jose + bcryptjs) · dnd-kit · rrule · Recharts · Nodemailer (Gmail).
 
 ## Local development
 
@@ -62,21 +62,22 @@ docker run -d --name dome-pg -e POSTGRES_USER=dome -e POSTGRES_PASSWORD=dome \
 | ----------------- | -------- | ------------------------------------------------------------ |
 | `DATABASE_URL`    | yes      | Neon **pooled** connection string (`...-pooler...`).         |
 | `DIRECT_URL`      | yes      | Neon **direct** connection string (used for migrations).     |
-| `AUTH_SECRET`     | yes      | Long random string used to sign session JWTs.                |
-| `RESEND_API_KEY`  | no       | Enables email. If unset, emails are logged and skipped.      |
-| `EMAIL_FROM`      | no       | e.g. `DoMe <onboarding@resend.dev>` until you verify a domain. |
-| `CRON_SECRET`     | yes\*    | Bearer token guarding `/api/cron/daily`. \*needed in prod.   |
-| `APP_URL`         | yes\*    | Public app URL; used in emails and by the cron job.          |
+| `AUTH_SECRET`        | yes   | Long random string used to sign session JWTs.                 |
+| `GMAIL_USER`         | no    | Gmail address to send from. Unset → emails are logged, not sent. |
+| `GMAIL_APP_PASSWORD` | no    | Google **App Password** (requires 2-Step Verification on).    |
+| `EMAIL_FROM`         | no    | Optional From override. Defaults to `DoMe <GMAIL_USER>`.       |
+| `CRON_SECRET`        | yes\* | Bearer token guarding `/api/cron/daily`. \*needed in prod.    |
+| `APP_URL`            | yes\* | Public app URL; used in email links and by the cron job.      |
 
 ## Deploy to Render (Blueprint) with Neon
 
 1. **Create a Neon database.** Copy both connection strings: the **pooled** one
    (host contains `-pooler`) → `DATABASE_URL`, and the **direct** one → `DIRECT_URL`.
-2. **Create a Resend account** (optional but recommended) and copy an API key.
+2. **(Optional) Set up Gmail sending** — see "Email via Gmail" below for the app password.
 3. In **Render → New → Blueprint**, connect this repo. Render reads
    [`render.yaml`](./render.yaml) and provisions the (free) web service.
 4. When prompted, paste the values for the variables marked `sync: false`:
-   `DATABASE_URL`, `DIRECT_URL`, `RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL`, and
+   `DATABASE_URL`, `DIRECT_URL`, `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `APP_URL`, and
    `CRON_SECRET` (pick any long random string). Set `APP_URL` to your Render web URL —
    you can fill it after the first deploy and redeploy. `AUTH_SECRET` is generated
    automatically.
@@ -97,6 +98,19 @@ add two **repository secrets** (Settings → Secrets and variables → Actions):
 Adjust the `cron:` time in the workflow (it's in UTC) to a morning hour for your timezone.
 You can also trigger it manually from the Actions tab, or hit the endpoint yourself:
 `curl -X POST -H "Authorization: Bearer $CRON_SECRET" $APP_URL/api/cron/daily`.
+
+### Email via Gmail
+
+DoMe sends through Gmail's SMTP — no domain needed, and it delivers to any recipient.
+
+1. On the Google account you want to send from, turn on **2-Step Verification**
+   (Google Account → Security).
+2. Then go to **App passwords** (Security → 2-Step Verification → App passwords), create
+   one named "DoMe", and copy the 16-character password.
+3. Set `GMAIL_USER` (your Gmail address) and `GMAIL_APP_PASSWORD` (that app password) in
+   Render. Leave both blank to disable email — the app just logs instead of sending.
+
+Gmail's free limit (~500 messages/day) is far beyond a household's needs.
 
 ## Scripts
 

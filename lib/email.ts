@@ -1,9 +1,22 @@
-import { Resend } from "resend";
+import nodemailer, { type Transporter } from "nodemailer";
 
-const apiKey = process.env.RESEND_API_KEY;
-const resend = apiKey ? new Resend(apiKey) : null;
-const FROM = process.env.EMAIL_FROM || "DoMe <onboarding@resend.dev>";
+const GMAIL_USER = process.env.GMAIL_USER;
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD;
+const FROM =
+  process.env.EMAIL_FROM || (GMAIL_USER ? `DoMe <${GMAIL_USER}>` : "DoMe");
 const APP_URL = process.env.APP_URL || "http://localhost:3000";
+
+let transporter: Transporter | null = null;
+function getTransporter(): Transporter | null {
+  if (!GMAIL_USER || !GMAIL_APP_PASSWORD) return null;
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+    });
+  }
+  return transporter;
+}
 
 interface SendArgs {
   to: string;
@@ -12,14 +25,14 @@ interface SendArgs {
 }
 
 export async function sendEmail({ to, subject, html }: SendArgs) {
-  if (!resend) {
+  const tx = getTransporter();
+  if (!tx) {
     console.log(`[email disabled] to=${to} subject="${subject}"`);
     return { skipped: true as const };
   }
   try {
-    const res = await resend.emails.send({ from: FROM, to, subject, html });
-    if (res.error) console.error("[email error]", res.error);
-    return res;
+    await tx.sendMail({ from: FROM, to, subject, html });
+    return { ok: true as const };
   } catch (e) {
     console.error("[email error]", e);
     return { error: true as const };
