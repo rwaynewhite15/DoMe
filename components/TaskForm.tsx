@@ -83,7 +83,9 @@ export function TaskForm({
       assigneeId,
       defaultPoints: Number(points) || 0,
       date,
-      time: kind === "EVENT" && allDay ? "" : time,
+      // Only events are time-bound. Tasks are date-only, and all-day events
+      // have no time either.
+      time: kind === "EVENT" && !allDay ? time : "",
       allDay: kind === "EVENT" ? allDay : false,
       freq: lockSchedule ? initial!.freq : freq,
       interval: Number(interval) || 1,
@@ -193,7 +195,7 @@ export function TaskForm({
             All-day event
           </label>
         )}
-        {!(kind === "EVENT" && allDay) && (
+        {kind === "EVENT" && !allDay && (
           <div>
             <label className="label">Time</label>
             <input

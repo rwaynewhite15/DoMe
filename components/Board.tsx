@@ -20,7 +20,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { MemberDTO, OccurrenceDTO } from "@/lib/queries";
-import { TaskForm } from "@/components/TaskForm";
+import { TaskForm, type TaskFormInitial } from "@/components/TaskForm";
+import { Modal } from "@/components/Modal";
 import { AssigneeAvatar, EmptyState, PointsBadge } from "@/components/ui";
 import { CheckIcon, DragIcon, MoreIcon, PlusIcon } from "@/components/icons";
 import {
@@ -73,6 +74,7 @@ export function Board({
 }) {
   const router = useRouter();
   const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<TaskFormInitial | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   // Local (optimistic) copy of the day groups, re-synced from props when the
@@ -186,9 +188,25 @@ export function Board({
         onDragEnd={onDragEnd}
       >
         {state.map((day) => (
-          <DayColumn key={day.key} day={day} currentUserId={currentUserId} />
+          <DayColumn
+            key={day.key}
+            day={day}
+            currentUserId={currentUserId}
+            onEdit={setEditing}
+          />
         ))}
       </DndContext>
+
+      {/* Editing a task is available from anywhere an item is shown. */}
+      <TaskForm
+        key={editing ? `edit-${editing.id}` : "edit-closed"}
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        members={members}
+        currentUserId={currentUserId}
+        defaultDate={defaultDate}
+        initial={editing ?? undefined}
+      />
 
       {showAdd && (
         <>
@@ -216,9 +234,11 @@ export function Board({
 function DayColumn({
   day,
   currentUserId,
+  onEdit,
 }: {
   day: DayState;
   currentUserId: string;
+  onEdit: (initial: TaskFormInitial) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: DAY_PREFIX + day.key });
 
@@ -253,6 +273,7 @@ function DayColumn({
                 key={occ.id}
                 occ={occ}
                 currentUserId={currentUserId}
+                onEdit={onEdit}
               />
             ))
           )}
@@ -265,19 +286,23 @@ function DayColumn({
 function OccurrenceRow({
   occ,
   currentUserId,
+  onEdit,
 }: {
   occ: OccurrenceDTO;
   currentUserId: string;
+  onEdit: (initial: TaskFormInitial) => void;
 }) {
   const router = useRouter();
   // Only the assigner controls the points; the assignee sees them read-only.
   const canEditPoints = occ.assigner.id === currentUserId;
+  const skipped = occ.status === "SKIPPED";
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: occ.id });
   const [pending, startTransition] = useTransition();
   const [editingPts, setEditingPts] = useState(false);
   const [pts, setPts] = useState(String(occ.points));
   const [menuOpen, setMenuOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   // Optimistic mirrors of server state so check-off and points edits show
   // immediately, then reconcile when router.refresh() lands. Re-synced from
@@ -340,6 +365,20 @@ function OccurrenceRow({
     });
   }
 
+  function unskip() {
+    setMenuOpen(false);
+    startTransition(async () => {
+      const r = await skipOccurrenceAction(occ.id, false);
+      if (r.ok) router.refresh();
+    });
+  }
+
+  function edit() {
+    setMenuOpen(false);
+    setDetailsOpen(false);
+    onEdit(occ.initial);
+  }
+
   function del() {
     setMenuOpen(false);
     if (!confirm("Delete this task and all of its occurrences?")) return;
@@ -358,11 +397,12 @@ function OccurrenceRow({
     .join(" · ");
 
   return (
+    <>
     <div
       ref={setNodeRef}
       style={style}
       className={`card flex items-center gap-2 p-2.5 ${
-        done ? "opacity-60" : ""
+        done || skipped ? "opacity-60" : ""
       } ${isDragging ? "shadow-lg" : ""}`}
     >
       <button
@@ -374,31 +414,50 @@ function OccurrenceRow({
         <DragIcon width={18} height={18} />
       </button>
 
-      <button
-        onClick={toggleComplete}
-        disabled={pending}
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
-          done
-            ? "border-emerald-500 bg-emerald-500 text-white"
-            : "border-zinc-300 text-transparent hover:border-emerald-400"
-        }`}
-        aria-label={done ? "Mark not done" : "Mark done"}
-      >
-        <CheckIcon width={16} height={16} />
-      </button>
+      {skipped ? (
+        <span
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-zinc-300 text-zinc-400"
+          aria-hidden
+        >
+          —
+        </span>
+      ) : (
+        <button
+          onClick={toggleComplete}
+          disabled={pending}
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+            done
+              ? "border-emerald-500 bg-emerald-500 text-white"
+              : "border-zinc-300 text-transparent hover:border-emerald-400"
+          }`}
+          aria-label={done ? "Mark not done" : "Mark done"}
+        >
+          <CheckIcon width={16} height={16} />
+        </button>
+      )}
 
-      <div className="min-w-0 flex-1">
+      <button
+        type="button"
+        onClick={() => setDetailsOpen(true)}
+        className="min-w-0 flex-1 text-left"
+        aria-label={`Show details for ${occ.title}`}
+      >
         <div
-          className={`truncate text-sm font-medium ${
+          className={`flex items-center gap-1.5 truncate text-sm font-medium ${
             done ? "text-zinc-400 line-through" : "text-zinc-800"
           }`}
         >
-          {occ.title}
+          <span className="truncate">{occ.title}</span>
+          {skipped && (
+            <span className="shrink-0 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-zinc-500">
+              Skipped
+            </span>
+          )}
         </div>
         {meta && <div className="truncate text-xs text-muted">{meta}</div>}
-      </div>
+      </button>
 
-      {editingPts && canEditPoints ? (
+      {!skipped && (editingPts && canEditPoints ? (
         <div className="flex items-center gap-1">
           <input
             type="number"
@@ -439,7 +498,7 @@ function OccurrenceRow({
             <PointsBadge points={optPoints} muted={done} />
           </span>
         )
-      )}
+      ))}
 
       <AssigneeAvatar member={occ.assignee} size={26} />
 
@@ -457,13 +516,28 @@ function OccurrenceRow({
               className="fixed inset-0 z-10"
               onClick={() => setMenuOpen(false)}
             />
-            <div className="card absolute right-0 z-20 mt-1 w-36 overflow-hidden p-1 text-sm">
+            <div className="card absolute right-0 z-20 mt-1 w-40 overflow-hidden p-1 text-sm">
               <button
-                onClick={skip}
+                onClick={edit}
                 className="block w-full rounded-lg px-3 py-2 text-left hover:bg-zinc-100"
               >
-                Skip this day
+                Edit
               </button>
+              {skipped ? (
+                <button
+                  onClick={unskip}
+                  className="block w-full rounded-lg px-3 py-2 text-left hover:bg-zinc-100"
+                >
+                  Restore this day
+                </button>
+              ) : (
+                <button
+                  onClick={skip}
+                  className="block w-full rounded-lg px-3 py-2 text-left hover:bg-zinc-100"
+                >
+                  Skip this day
+                </button>
+              )}
               <button
                 onClick={del}
                 className="block w-full rounded-lg px-3 py-2 text-left text-red-600 hover:bg-red-50"
@@ -475,5 +549,105 @@ function OccurrenceRow({
         )}
       </div>
     </div>
+
+    <DetailsModal
+      occ={occ}
+      open={detailsOpen}
+      onClose={() => setDetailsOpen(false)}
+      onEdit={edit}
+    />
+    </>
+  );
+}
+
+function DetailRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex justify-between gap-4 py-1.5 text-sm">
+      <span className="shrink-0 text-muted">{label}</span>
+      <span className="text-right font-medium text-zinc-800">{children}</span>
+    </div>
+  );
+}
+
+function DetailsModal({
+  occ,
+  open,
+  onClose,
+  onEdit,
+}: {
+  occ: OccurrenceDTO;
+  open: boolean;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  const when = [occ.dateLabel, occ.allDay ? "All day" : occ.timeLabel]
+    .filter(Boolean)
+    .join(" · ");
+  const statusLabel =
+    occ.status === "COMPLETED"
+      ? "Completed"
+      : occ.status === "SKIPPED"
+        ? "Skipped"
+        : "To do";
+
+  return (
+    <Modal open={open} onClose={onClose} title={occ.title}>
+      <div className="space-y-1">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-zinc-500">
+            {occ.kind}
+          </span>
+          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-zinc-500">
+            {statusLabel}
+          </span>
+          {occ.isRecurring && (
+            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-500">
+              ↻ Repeats
+            </span>
+          )}
+        </div>
+
+        <DetailRow label="When">{when}</DetailRow>
+        {occ.location && <DetailRow label="Location">{occ.location}</DetailRow>}
+        <DetailRow label="Assigned to">
+          {occ.assignee?.name ?? "Anyone"}
+        </DetailRow>
+        <DetailRow label="Created by">{occ.assigner.name}</DetailRow>
+        {occ.points > 0 && (
+          <DetailRow label="Points">
+            {occ.points} pt{occ.points === 1 ? "" : "s"}
+          </DetailRow>
+        )}
+        {occ.completedByName && (
+          <DetailRow label="Completed by">{occ.completedByName}</DetailRow>
+        )}
+
+        {occ.description ? (
+          <div className="pt-3">
+            <div className="label">Notes</div>
+            <p className="whitespace-pre-wrap text-sm text-zinc-700">
+              {occ.description}
+            </p>
+          </div>
+        ) : (
+          <p className="pt-3 text-sm text-muted">No notes added.</p>
+        )}
+
+        <div className="flex gap-2 pt-4">
+          <button type="button" onClick={onClose} className="btn-ghost flex-1">
+            Close
+          </button>
+          <button type="button" onClick={onEdit} className="btn-primary flex-1">
+            Edit
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }

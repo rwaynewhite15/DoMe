@@ -48,8 +48,11 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
     }
   }
 
+  // Only events are time-bound. A task is anchored to a day, not a clock time,
+  // so it's stored at the start of its local day with no time of day.
   const allDay = d.kind === "EVENT" ? !!d.allDay : false;
-  const startAt = localDateTimeToUtc(d.date, d.time || undefined, tz, allDay);
+  const timed = d.kind === "EVENT" && !allDay;
+  const startAt = localDateTimeToUtc(d.date, timed ? d.time : undefined, tz, !timed);
   const recurrenceRule = buildRRuleString({
     freq: d.freq,
     interval: d.interval,
@@ -183,7 +186,8 @@ export async function updateTaskAction(
   // For single (non-recurring) tasks, allow moving the date/time.
   if (!task.isRecurring) {
     const allDay = d.kind === "EVENT" ? !!d.allDay : false;
-    const newStart = localDateTimeToUtc(d.date, d.time || undefined, tz, allDay);
+    const timed = d.kind === "EVENT" && !allDay;
+    const newStart = localDateTimeToUtc(d.date, timed ? d.time : undefined, tz, !timed);
     if (newStart.getTime() !== task.startAt.getTime() || allDay !== task.allDay) {
       await prisma.task.update({
         where: { id: task.id },
