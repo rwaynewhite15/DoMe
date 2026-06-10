@@ -49,7 +49,7 @@ export function PointsChart({
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={data}
-            margin={{ top: 8, right: 8, left: -16, bottom: 0 }}
+            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
           >
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
             <XAxis
@@ -58,7 +58,17 @@ export function PointsChart({
               interval="preserveStartEnd"
               minTickGap={24}
             />
-            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} width={32} />
+            <YAxis
+              tick={{ fontSize: 11 }}
+              allowDecimals={false}
+              width={40}
+              label={{
+                value: "Points",
+                angle: -90,
+                position: "insideLeft",
+                style: { fontSize: 11, fill: "#71717a", textAnchor: "middle" },
+              }}
+            />
             <Tooltip />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             {members.map((m) => (

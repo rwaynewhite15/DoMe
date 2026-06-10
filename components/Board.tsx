@@ -188,12 +188,7 @@ export function Board({
         onDragEnd={onDragEnd}
       >
         {state.map((day) => (
-          <DayColumn
-            key={day.key}
-            day={day}
-            currentUserId={currentUserId}
-            onEdit={setEditing}
-          />
+          <DayColumn key={day.key} day={day} onEdit={setEditing} />
         ))}
       </DndContext>
 
@@ -233,11 +228,9 @@ export function Board({
 
 function DayColumn({
   day,
-  currentUserId,
   onEdit,
 }: {
   day: DayState;
-  currentUserId: string;
   onEdit: (initial: TaskFormInitial) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: DAY_PREFIX + day.key });
@@ -269,12 +262,7 @@ function DayColumn({
             <EmptyState>Nothing scheduled. Drop a task here.</EmptyState>
           ) : (
             day.items.map((occ) => (
-              <OccurrenceRow
-                key={occ.id}
-                occ={occ}
-                currentUserId={currentUserId}
-                onEdit={onEdit}
-              />
+              <OccurrenceRow key={occ.id} occ={occ} onEdit={onEdit} />
             ))
           )}
         </div>
@@ -285,16 +273,14 @@ function DayColumn({
 
 function OccurrenceRow({
   occ,
-  currentUserId,
   onEdit,
 }: {
   occ: OccurrenceDTO;
-  currentUserId: string;
   onEdit: (initial: TaskFormInitial) => void;
 }) {
   const router = useRouter();
-  // Only the assigner controls the points; the assignee sees them read-only.
-  const canEditPoints = occ.assigner.id === currentUserId;
+  // Any household member can adjust the points on any task.
+  const canEditPoints = true;
   const skipped = occ.status === "SKIPPED";
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: occ.id });
