@@ -171,10 +171,10 @@ export async function rescheduleOccurrenceAction(
   }
 
   const tz = user.household.timezone;
-  const time = occ.task.allDay
-    ? undefined
-    : formatInTimeZone(occ.date, tz, "HH:mm");
-  const newDate = localDateTimeToUtc(newDayKey, time, tz, occ.task.allDay);
+  // Tasks are date-only; only timed events keep their clock time when moved.
+  const dateOnly = occ.task.kind === "TASK" || occ.task.allDay;
+  const time = dateOnly ? undefined : formatInTimeZone(occ.date, tz, "HH:mm");
+  const newDate = localDateTimeToUtc(newDayKey, time, tz, dateOnly);
   if (newDate.getTime() === occ.date.getTime()) return { ok: true };
 
   // A non-recurring task has a single occurrence, so keep the parent task's

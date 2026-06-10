@@ -76,7 +76,11 @@ function toDTO(o: OccurrenceRow, tz: string): OccurrenceDTO {
     points: o.points,
     status: o.status,
     dateISO: o.date.toISOString(),
-    timeLabel: o.task.allDay ? null : localTimeLabel(o.date, tz),
+    // Tasks are date-only; only timed events carry a clock label.
+    timeLabel:
+      o.task.kind === "TASK" || o.task.allDay
+        ? null
+        : localTimeLabel(o.date, tz),
     allDay: o.task.allDay,
     isRecurring: o.task.isRecurring,
     pointsEdited: o.pointsEdited,
@@ -159,10 +163,13 @@ export async function getTasksForManage(
     const rec = parseRRuleString(t.recurrenceRule);
     const date = formatInTimeZone(t.startAt, tz, "yyyy-MM-dd");
     const time = formatInTimeZone(t.startAt, tz, "HH:mm");
-    const timePart = t.allDay ? "All day" : localTimeLabel(t.startAt, tz);
-    const scheduleLabel = t.isRecurring
-      ? `${recurrenceLabel(rec.freq, rec.interval ?? 1, rec.weekdays ?? [])} · ${timePart}`
-      : `${localDayLabel(t.startAt, tz)} · ${timePart}`;
+    // Tasks are date-only; only events show a time (or "All day").
+    const timePart =
+      t.kind === "TASK" ? null : t.allDay ? "All day" : localTimeLabel(t.startAt, tz);
+    const base = t.isRecurring
+      ? recurrenceLabel(rec.freq, rec.interval ?? 1, rec.weekdays ?? [])
+      : localDayLabel(t.startAt, tz);
+    const scheduleLabel = timePart ? `${base} · ${timePart}` : base;
 
     const initial: TaskFormInitial = {
       id: t.id,
