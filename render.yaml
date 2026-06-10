@@ -1,7 +1,7 @@
 # Render Blueprint for DoMe.
-# In Render: New → Blueprint → connect this repo. Render provisions the web
-# service and prompts for the secrets marked `sync: false` (your Neon DB URLs,
-# Resend settings, APP_URL, and a CRON_SECRET). AUTH_SECRET is generated
+# In Render: New → Blueprint → connect this repo. Render provisions the (free)
+# web service and prompts for every variable marked `sync: false` — your Neon DB
+# URLs, Resend settings, APP_URL, and a CRON_SECRET. AUTH_SECRET is generated
 # automatically.
 #
 # The daily points digest is triggered by a free scheduled GitHub Action
@@ -19,11 +19,6 @@ services:
     buildCommand: npm install && npx prisma generate && npx prisma migrate deploy && npm run build
     startCommand: npm run start
     healthCheckPath: /api/health
-    envVars:
-      - fromGroup: dome-env
-
-envVarGroups:
-  - name: dome-env
     envVars:
       - key: NODE_VERSION
         value: "22"
