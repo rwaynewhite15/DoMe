@@ -1,8 +1,12 @@
 # Render Blueprint for DoMe.
 # In Render: New → Blueprint → connect this repo. Render provisions the web
-# service + daily cron job and prompts for the secrets marked `sync: false`
-# (your Neon DB URLs + Resend settings). AUTH_SECRET and CRON_SECRET are
-# generated automatically and shared across both services via the env group.
+# service and prompts for the secrets marked `sync: false` (your Neon DB URLs,
+# Resend settings, APP_URL, and a CRON_SECRET). AUTH_SECRET is generated
+# automatically.
+#
+# The daily points digest is triggered by a free scheduled GitHub Action
+# (.github/workflows/daily-digest.yml) that POSTs to /api/cron/daily — Render
+# cron jobs are a paid add-on, so we keep the Blueprint on the free tier.
 
 services:
   - type: web
@@ -15,19 +19,6 @@ services:
     buildCommand: npm install && npx prisma generate && npx prisma migrate deploy && npm run build
     startCommand: npm run start
     healthCheckPath: /api/health
-    envVars:
-      - fromGroup: dome-env
-
-  - type: cron
-    name: dome-daily-digest
-    runtime: node
-    plan: free
-    region: oregon
-    branch: main
-    # 13:00 UTC daily — adjust to a morning hour for your timezone.
-    schedule: "0 13 * * *"
-    buildCommand: npm install
-    startCommand: node scripts/cron-trigger.mjs
     envVars:
       - fromGroup: dome-env
 
@@ -46,7 +37,7 @@ envVarGroups:
         sync: false
       - key: APP_URL
         sync: false
-      - key: AUTH_SECRET
-        generateValue: true
       - key: CRON_SECRET
+        sync: false
+      - key: AUTH_SECRET
         generateValue: true

@@ -1,0 +1,27 @@
+name: Daily points digest
+
+# Triggers DoMe's daily digest (and tops up recurring occurrences) by POSTing
+# to /api/cron/daily. Free alternative to a paid Render cron job.
+#
+# Setup: add two repository secrets (Settings → Secrets and variables → Actions):
+#   APP_URL      your deployed app URL, e.g. https://dome.onrender.com
+#   CRON_SECRET  the same value you set for CRON_SECRET in Render
+#
+# Adjust the cron time below to a morning hour in your timezone (it is UTC).
+
+on:
+  schedule:
+    - cron: "0 13 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call daily digest endpoint
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS -X POST "${APP_URL%/}/api/cron/daily" \
+            -H "Authorization: Bearer ${CRON_SECRET}"

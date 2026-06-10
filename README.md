@@ -74,19 +74,29 @@ docker run -d --name dome-pg -e POSTGRES_USER=dome -e POSTGRES_PASSWORD=dome \
    (host contains `-pooler`) → `DATABASE_URL`, and the **direct** one → `DIRECT_URL`.
 2. **Create a Resend account** (optional but recommended) and copy an API key.
 3. In **Render → New → Blueprint**, connect this repo. Render reads
-   [`render.yaml`](./render.yaml) and provisions the web service + daily cron job.
+   [`render.yaml`](./render.yaml) and provisions the (free) web service.
 4. When prompted, paste the values for the variables marked `sync: false`:
-   `DATABASE_URL`, `DIRECT_URL`, `RESEND_API_KEY`, `EMAIL_FROM`, and `APP_URL`
-   (set `APP_URL` to your Render web URL — you can fill it after the first deploy and
-   redeploy). `AUTH_SECRET` and `CRON_SECRET` are generated automatically and shared
-   across both services.
+   `DATABASE_URL`, `DIRECT_URL`, `RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL`, and
+   `CRON_SECRET` (pick any long random string). Set `APP_URL` to your Render web URL —
+   you can fill it after the first deploy and redeploy. `AUTH_SECRET` is generated
+   automatically.
 5. Apply. The build runs `prisma migrate deploy` automatically, so the schema is created
    on first deploy. Open the app, **Create a household**, then add your partner under
    **Settings → Members**.
 
-The cron service (`dome-daily-digest`) runs each morning and POSTs to `/api/cron/daily`,
-which tops up recurring occurrences and sends the daily digest. Adjust its `schedule`
-in `render.yaml` to a convenient morning hour for your timezone.
+### Daily digest (free, via GitHub Actions)
+
+Render cron jobs are a paid add-on, so the daily digest is driven by a free scheduled
+workflow, [`.github/workflows/daily-digest.yml`](./.github/workflows/daily-digest.yml),
+which POSTs to `/api/cron/daily` (this also tops up recurring occurrences). To enable it,
+add two **repository secrets** (Settings → Secrets and variables → Actions):
+
+- `APP_URL` — your deployed app URL (e.g. `https://dome.onrender.com`)
+- `CRON_SECRET` — the same value you set in Render
+
+Adjust the `cron:` time in the workflow (it's in UTC) to a morning hour for your timezone.
+You can also trigger it manually from the Actions tab, or hit the endpoint yourself:
+`curl -X POST -H "Authorization: Bearer $CRON_SECRET" $APP_URL/api/cron/daily`.
 
 ## Scripts
 
