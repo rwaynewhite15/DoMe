@@ -20,6 +20,7 @@ export interface TaskFormInitial {
   date: string;
   time: string;
   allDay: boolean;
+  rollover: boolean;
   freq: "NONE" | "DAILY" | "WEEKLY" | "MONTHLY";
   interval: number;
   weekdays: number[];
@@ -60,6 +61,7 @@ export function TaskForm({
   const [date, setDate] = useState(initial?.date ?? defaultDate);
   const [allDay, setAllDay] = useState(initial?.allDay ?? false);
   const [time, setTime] = useState(initial?.time || "09:00");
+  const [rollover, setRollover] = useState(initial?.rollover ?? false);
   const [freq, setFreq] = useState(initial?.freq ?? "NONE");
   const [interval, setIntervalValue] = useState(String(initial?.interval ?? 1));
   const [weekdays, setWeekdays] = useState<number[]>(initial?.weekdays ?? []);
@@ -87,6 +89,8 @@ export function TaskForm({
       // have no time either.
       time: kind === "EVENT" && !allDay ? time : "",
       allDay: kind === "EVENT" ? allDay : false,
+      // "Keep until done" only applies to non-recurring tasks.
+      rollover: kind === "TASK" && freq === "NONE" ? rollover : false,
       freq: lockSchedule ? initial!.freq : freq,
       interval: Number(interval) || 1,
       weekdays,
@@ -276,6 +280,26 @@ export function TaskForm({
               ))}
             </div>
           </div>
+        )}
+
+        {kind === "TASK" && freq === "NONE" && (
+          <label className="flex items-start gap-2.5 rounded-xl border border-border px-3 py-2.5 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={rollover}
+              onChange={(e) => setRollover(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium text-zinc-700">
+                Keep on the list until it&apos;s done
+              </span>
+              <span className="block text-xs text-muted">
+                If not finished, it carries over to the next day instead of
+                disappearing — and only costs its points once.
+              </span>
+            </span>
+          </label>
         )}
 
         <details className="rounded-xl border border-border px-3 py-2">

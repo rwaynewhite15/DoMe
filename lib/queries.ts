@@ -27,6 +27,10 @@ export interface OccurrenceDTO {
   allDay: boolean;
   isRecurring: boolean;
   pointsEdited: boolean;
+  /** Task is flagged to stay on the list until it's completed. */
+  rollover: boolean;
+  /** This pending occurrence is overdue and surfaced on today via rollover. */
+  carriedOver: boolean;
   assignee: MemberDTO | null;
   assigner: MemberDTO;
   completedByName: string | null;
@@ -85,6 +89,7 @@ function buildTaskInitial(
     allDay: boolean;
     isRecurring: boolean;
     recurrenceRule: string | null;
+    rollover: boolean;
   },
   tz: string,
 ): TaskFormInitial {
@@ -101,6 +106,7 @@ function buildTaskInitial(
     date: formatInTimeZone(t.startAt, tz, "yyyy-MM-dd"),
     time: formatInTimeZone(t.startAt, tz, "HH:mm"),
     allDay: t.allDay,
+    rollover: t.rollover,
     freq: rec.freq,
     interval: rec.interval ?? 1,
     weekdays: rec.weekdays ?? [],
@@ -128,6 +134,8 @@ function toDTO(o: OccurrenceRow, tz: string): OccurrenceDTO {
     allDay: o.task.allDay,
     isRecurring: o.task.isRecurring,
     pointsEdited: o.pointsEdited,
+    rollover: o.task.rollover,
+    carriedOver: false,
     assignee: o.task.assignee ?? null,
     assigner: o.task.assigner,
     completedByName: o.completedBy?.name ?? null,
@@ -144,6 +152,28 @@ export async function getOccurrencesInRange(
 ): Promise<OccurrenceDTO[]> {
   const rows = await fetchOccurrences(householdId, start, end);
   return rows.map((r) => toDTO(r, tz));
+}
+
+/**
+ * Overdue, still-pending occurrences of "keep until done" (rollover) tasks.
+ * These are surfaced on today's list so the task follows you forward until it's
+ * completed — without spending budget on a new occurrence each day.
+ */
+export async function getCarryoverOccurrences(
+  householdId: string,
+  before: Date,
+  tz: string,
+): Promise<OccurrenceDTO[]> {
+  const rows = await prisma.taskOccurrence.findMany({
+    where: {
+      date: { lt: before },
+      status: "PENDING",
+      task: { householdId, active: true, rollover: true, isRecurring: false },
+    },
+    include: occurrenceInclude,
+    orderBy: [{ date: "asc" }, { sortOrder: "asc" }],
+  });
+  return rows.map((r) => ({ ...toDTO(r, tz), carriedOver: true }));
 }
 
 export async function getMembers(householdId: string): Promise<MemberDTO[]> {
@@ -212,7 +242,8 @@ export async function getTasksForManage(
     const base = t.isRecurring
       ? recurrenceLabel(rec.freq, rec.interval ?? 1, rec.weekdays ?? [])
       : localDayLabel(t.startAt, tz);
-    const scheduleLabel = timePart ? `${base} · ${timePart}` : base;
+    let scheduleLabel = timePart ? `${base} · ${timePart}` : base;
+    if (t.rollover) scheduleLabel += " · Keeps until done";
 
     const initial = buildTaskInitial(t, tz);
 

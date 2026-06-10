@@ -439,6 +439,14 @@ function OccurrenceRow({
               Skipped
             </span>
           )}
+          {occ.carriedOver && !done && (
+            <span
+              className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700"
+              title={`Was due ${occ.dateLabel}`}
+            >
+              Carried over
+            </span>
+          )}
         </div>
         {done && occ.completedByName ? (
           <div className="truncate text-xs font-medium text-emerald-600">
