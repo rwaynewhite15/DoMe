@@ -1,12 +1,56 @@
 import { subDays } from "date-fns";
 import { prisma } from "@/lib/db";
-import { localDayKey, startOfLocalDay } from "@/lib/dates";
+import { endOfLocalDay, localDayKey, startOfLocalDay } from "@/lib/dates";
 import { formatInTimeZone } from "date-fns-tz";
 
 export interface MemberRef {
   id: string;
   name: string;
   color: string;
+}
+
+export interface EarnedDTO {
+  member: MemberRef;
+  earned: number;
+}
+
+/**
+ * Points each member has earned by completing tasks today. The assignee earns;
+ * unassigned ("Anyone") tasks credit whoever completed them. Buckets by
+ * completedAt, matching the leaderboard/trend definition of "earned".
+ */
+export async function getDailyEarned(
+  householdId: string,
+  tz: string,
+): Promise<EarnedDTO[]> {
+  const members = await prisma.user.findMany({
+    where: { householdId },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true, color: true },
+  });
+
+  const now = new Date();
+  const completed = await prisma.taskOccurrence.findMany({
+    where: {
+      status: "COMPLETED",
+      completedAt: { gte: startOfLocalDay(now, tz), lte: endOfLocalDay(now, tz) },
+      task: { householdId },
+    },
+    select: {
+      points: true,
+      completedById: true,
+      task: { select: { assigneeId: true } },
+    },
+  });
+
+  const totals: Record<string, number> = {};
+  for (const o of completed) {
+    const uid = o.task.assigneeId ?? o.completedById;
+    if (!uid) continue;
+    totals[uid] = (totals[uid] ?? 0) + o.points;
+  }
+
+  return members.map((m) => ({ member: m, earned: totals[m.id] ?? 0 }));
 }
 
 export interface TrendBucket {

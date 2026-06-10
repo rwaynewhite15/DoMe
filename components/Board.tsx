@@ -440,7 +440,13 @@ function OccurrenceRow({
             </span>
           )}
         </div>
-        {meta && <div className="truncate text-xs text-muted">{meta}</div>}
+        {done && occ.completedByName ? (
+          <div className="truncate text-xs font-medium text-emerald-600">
+            Completed by {occ.completedByName}
+          </div>
+        ) : (
+          meta && <div className="truncate text-xs text-muted">{meta}</div>
+        )}
       </button>
 
       {!skipped && (editingPts && canEditPoints ? (

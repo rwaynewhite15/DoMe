@@ -1,9 +1,6 @@
 import { requireUser } from "@/lib/auth";
-import {
-  getBudgets,
-  getMembers,
-  getOccurrencesInRange,
-} from "@/lib/queries";
+import { getMembers, getOccurrencesInRange } from "@/lib/queries";
+import { getDailyEarned } from "@/lib/points";
 import {
   endOfLocalDay,
   localDayKey,
@@ -11,7 +8,7 @@ import {
   startOfLocalDay,
 } from "@/lib/dates";
 import { Board, type DayGroup } from "@/components/Board";
-import { BudgetMeters } from "@/components/BudgetMeter";
+import { EarnedMeters } from "@/components/EarnedMeter";
 import { SectionTitle } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -22,9 +19,9 @@ export default async function TodayPage() {
   const hid = user.householdId;
   const now = new Date();
 
-  const [members, budgets, occurrences] = await Promise.all([
+  const [members, earned, occurrences] = await Promise.all([
     getMembers(hid),
-    getBudgets(hid, tz),
+    getDailyEarned(hid, tz),
     getOccurrencesInRange(
       hid,
       startOfLocalDay(now, tz),
@@ -59,8 +56,8 @@ export default async function TodayPage() {
       </div>
 
       <section>
-        <SectionTitle>Weekly point budgets</SectionTitle>
-        <BudgetMeters budgets={budgets} />
+        <SectionTitle>Points earned today</SectionTitle>
+        <EarnedMeters earned={earned} />
       </section>
 
       <section>
