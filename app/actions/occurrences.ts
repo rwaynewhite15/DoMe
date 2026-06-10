@@ -63,7 +63,7 @@ export async function completeOccurrenceAction(
   const user = await requireUser();
   const occ = await prisma.taskOccurrence.findFirst({
     where: { id: occurrenceId, task: { householdId: user.householdId } },
-    include: { task: { include: { assigner: true, assignee: true } } },
+    include: { task: true },
   });
   if (!occ) return { ok: false, error: "Task occurrence not found." };
   if (occ.status === "COMPLETED") {
@@ -80,15 +80,19 @@ export async function completeOccurrenceAction(
     },
   });
 
-  const assigner = occ.task.assigner;
-  if (assigner.notifyOnComplete && assigner.id !== user.id) {
+  // Notify every household member who has opted in, regardless of who created
+  // or completed the task.
+  const recipients = await prisma.user.findMany({
+    where: { householdId: user.householdId, notifyOnComplete: true },
+  });
+  for (const recipient of recipients) {
     const { subject, html } = taskCompletedEmail({
-      recipientName: assigner.name,
+      recipientName: recipient.name,
       completerName: user.name,
       taskTitle: occ.task.title,
       points: occ.points,
     });
-    await sendEmail({ to: assigner.email, subject, html });
+    await sendEmail({ to: recipient.email, subject, html });
   }
 
   revalidateAll();

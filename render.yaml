@@ -16,7 +16,10 @@ services:
     region: oregon
     branch: main
     autoDeploy: true
-    buildCommand: npm install && npx prisma generate && npx prisma migrate deploy && npm run build
+    # The final step fires the daily digest on every deploy (idempotent per
+    # local day via NotificationLog, so redeploys won't double-send). It is
+    # made non-fatal with `|| true` so a digest hiccup never blocks a deploy.
+    buildCommand: npm install && npx prisma generate && npx prisma migrate deploy && npm run build && (npm run cron:daily || true)
     startCommand: npm run start
     healthCheckPath: /api/health
     envVars:
