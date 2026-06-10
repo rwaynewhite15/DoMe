@@ -22,6 +22,7 @@ export interface OccurrenceDTO {
   points: number;
   status: "PENDING" | "COMPLETED" | "SKIPPED";
   dateISO: string;
+  dateLabel: string;
   timeLabel: string | null;
   allDay: boolean;
   isRecurring: boolean;
@@ -30,6 +31,8 @@ export interface OccurrenceDTO {
   assigner: MemberDTO;
   completedByName: string | null;
   sortOrder: number;
+  /** Pre-built form state for editing the underlying task from the board. */
+  initial: TaskFormInitial;
 }
 
 export interface BudgetDTO {
@@ -57,12 +60,52 @@ function fetchOccurrences(householdId: string, start: Date, end: Date) {
   return prisma.taskOccurrence.findMany({
     where: {
       date: { gte: start, lte: end },
-      status: { not: "SKIPPED" },
       task: { householdId, active: true },
     },
     include: occurrenceInclude,
     orderBy: [{ date: "asc" }, { sortOrder: "asc" }],
   });
+}
+
+/**
+ * Build the TaskForm's initial state from a task row. Shared by the manage
+ * list and the calendar/today board so an item can be edited from anywhere.
+ */
+function buildTaskInitial(
+  t: {
+    id: string;
+    title: string;
+    description: string | null;
+    location: string | null;
+    kind: "EVENT" | "TASK";
+    assignerId: string;
+    assigneeId: string | null;
+    defaultPoints: number;
+    startAt: Date;
+    allDay: boolean;
+    isRecurring: boolean;
+    recurrenceRule: string | null;
+  },
+  tz: string,
+): TaskFormInitial {
+  const rec = parseRRuleString(t.recurrenceRule);
+  return {
+    id: t.id,
+    title: t.title,
+    description: t.description ?? "",
+    location: t.location ?? "",
+    kind: t.kind,
+    assignerId: t.assignerId,
+    assigneeId: t.assigneeId ?? "",
+    defaultPoints: t.defaultPoints,
+    date: formatInTimeZone(t.startAt, tz, "yyyy-MM-dd"),
+    time: formatInTimeZone(t.startAt, tz, "HH:mm"),
+    allDay: t.allDay,
+    freq: rec.freq,
+    interval: rec.interval ?? 1,
+    weekdays: rec.weekdays ?? [],
+    isRecurring: t.isRecurring,
+  };
 }
 
 function toDTO(o: OccurrenceRow, tz: string): OccurrenceDTO {
@@ -76,6 +119,7 @@ function toDTO(o: OccurrenceRow, tz: string): OccurrenceDTO {
     points: o.points,
     status: o.status,
     dateISO: o.date.toISOString(),
+    dateLabel: localDayLabel(o.date, tz),
     // Tasks are date-only; only timed events carry a clock label.
     timeLabel:
       o.task.kind === "TASK" || o.task.allDay
@@ -88,6 +132,7 @@ function toDTO(o: OccurrenceRow, tz: string): OccurrenceDTO {
     assigner: o.task.assigner,
     completedByName: o.completedBy?.name ?? null,
     sortOrder: o.sortOrder,
+    initial: buildTaskInitial(o.task, tz),
   };
 }
 
@@ -161,8 +206,6 @@ export async function getTasksForManage(
 
   return tasks.map((t) => {
     const rec = parseRRuleString(t.recurrenceRule);
-    const date = formatInTimeZone(t.startAt, tz, "yyyy-MM-dd");
-    const time = formatInTimeZone(t.startAt, tz, "HH:mm");
     // Tasks are date-only; only events show a time (or "All day").
     const timePart =
       t.kind === "TASK" ? null : t.allDay ? "All day" : localTimeLabel(t.startAt, tz);
@@ -171,23 +214,7 @@ export async function getTasksForManage(
       : localDayLabel(t.startAt, tz);
     const scheduleLabel = timePart ? `${base} · ${timePart}` : base;
 
-    const initial: TaskFormInitial = {
-      id: t.id,
-      title: t.title,
-      description: t.description ?? "",
-      location: t.location ?? "",
-      kind: t.kind,
-      assignerId: t.assignerId,
-      assigneeId: t.assigneeId ?? "",
-      defaultPoints: t.defaultPoints,
-      date,
-      time,
-      allDay: t.allDay,
-      freq: rec.freq,
-      interval: rec.interval ?? 1,
-      weekdays: rec.weekdays ?? [],
-      isRecurring: t.isRecurring,
-    };
+    const initial = buildTaskInitial(t, tz);
 
     return {
       id: t.id,
