@@ -186,7 +186,7 @@ export function Board({
         onDragEnd={onDragEnd}
       >
         {state.map((day) => (
-          <DayColumn key={day.key} day={day} />
+          <DayColumn key={day.key} day={day} currentUserId={currentUserId} />
         ))}
       </DndContext>
 
@@ -213,7 +213,13 @@ export function Board({
   );
 }
 
-function DayColumn({ day }: { day: DayState }) {
+function DayColumn({
+  day,
+  currentUserId,
+}: {
+  day: DayState;
+  currentUserId: string;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: DAY_PREFIX + day.key });
 
   return (
@@ -242,7 +248,13 @@ function DayColumn({ day }: { day: DayState }) {
           {day.items.length === 0 ? (
             <EmptyState>Nothing scheduled. Drop a task here.</EmptyState>
           ) : (
-            day.items.map((occ) => <OccurrenceRow key={occ.id} occ={occ} />)
+            day.items.map((occ) => (
+              <OccurrenceRow
+                key={occ.id}
+                occ={occ}
+                currentUserId={currentUserId}
+              />
+            ))
           )}
         </div>
       </SortableContext>
@@ -250,8 +262,16 @@ function DayColumn({ day }: { day: DayState }) {
   );
 }
 
-function OccurrenceRow({ occ }: { occ: OccurrenceDTO }) {
+function OccurrenceRow({
+  occ,
+  currentUserId,
+}: {
+  occ: OccurrenceDTO;
+  currentUserId: string;
+}) {
   const router = useRouter();
+  // Only the assigner controls the points; the assignee sees them read-only.
+  const canEditPoints = occ.assigner.id === currentUserId;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: occ.id });
   const [pending, startTransition] = useTransition();
@@ -378,7 +398,7 @@ function OccurrenceRow({ occ }: { occ: OccurrenceDTO }) {
         {meta && <div className="truncate text-xs text-muted">{meta}</div>}
       </div>
 
-      {editingPts ? (
+      {editingPts && canEditPoints ? (
         <div className="flex items-center gap-1">
           <input
             type="number"
@@ -397,7 +417,7 @@ function OccurrenceRow({ occ }: { occ: OccurrenceDTO }) {
             Save
           </button>
         </div>
-      ) : (
+      ) : canEditPoints ? (
         <button
           onClick={() => {
             if (done) return;
@@ -413,6 +433,12 @@ function OccurrenceRow({ occ }: { occ: OccurrenceDTO }) {
             !done && <span className="text-xs text-zinc-400">+ pts</span>
           )}
         </button>
+      ) : (
+        optPoints > 0 && (
+          <span className="shrink-0" title="Set by the assigner">
+            <PointsBadge points={optPoints} muted={done} />
+          </span>
+        )
       )}
 
       <AssigneeAvatar member={occ.assignee} size={26} />
