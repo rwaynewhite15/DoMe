@@ -53,6 +53,8 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
   const allDay = d.kind === "EVENT" ? !!d.allDay : false;
   const timed = d.kind === "EVENT" && !allDay;
   const startAt = localDateTimeToUtc(d.date, timed ? d.time : undefined, tz, !timed);
+  // Events are calendar entries only — they never carry points.
+  const defaultPoints = d.kind === "EVENT" ? 0 : d.defaultPoints;
   const recurrenceRule = buildRRuleString({
     freq: d.freq,
     interval: d.interval,
@@ -62,12 +64,12 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
 
   // Budget check (only points placed inside the current rolling window count).
   // Unassigned ("Anyone") tasks consume no one's budget, so skip it.
-  if (assigneeId && d.defaultPoints > 0) {
+  if (assigneeId && defaultPoints > 0) {
     const draft = {
       startAt,
       isRecurring,
       recurrenceRule,
-      defaultPoints: d.defaultPoints,
+      defaultPoints,
     };
     const adding = pointsForDraftInWindow(draft, tz);
     if (adding > 0) {
@@ -92,7 +94,7 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
       kind: d.kind,
       assignerId: user.id,
       assigneeId,
-      defaultPoints: d.defaultPoints,
+      defaultPoints,
       isRecurring,
       recurrenceRule,
       startAt,
@@ -136,9 +138,12 @@ export async function updateTaskAction(
     }
   }
 
+  // Events are calendar entries only — they never carry points.
+  const defaultPoints = d.kind === "EVENT" ? 0 : d.defaultPoints;
+
   // Budget check for the new default points propagating to pending occurrences.
   // Unassigned ("Anyone") tasks consume no one's budget, so skip it.
-  if (assigneeId && d.defaultPoints > 0) {
+  if (assigneeId && defaultPoints > 0) {
     const { start, end } = weekWindow(tz);
     const inWindow = await prisma.taskOccurrence.findMany({
       where: {
@@ -150,7 +155,7 @@ export async function updateTaskAction(
     });
     const thisSum = inWindow.reduce((sum, o) => {
       const usesNewDefault = o.status === "PENDING" && !o.pointsEdited;
-      return sum + (usesNewDefault ? d.defaultPoints : o.points);
+      return sum + (usesNewDefault ? defaultPoints : o.points);
     }, 0);
     const usedOther = await getWeeklyUsage(task.assignerId, tz, {
       excludeTaskId: task.id,
@@ -173,14 +178,15 @@ export async function updateTaskAction(
       location: d.location || null,
       kind: d.kind,
       assigneeId,
-      defaultPoints: d.defaultPoints,
+      defaultPoints,
     },
   });
 
-  // Propagate new default to pending, un-edited occurrences.
+  // Propagate new default to pending, un-edited occurrences. (Switching a task
+  // to an event zeroes its points here.)
   await prisma.taskOccurrence.updateMany({
     where: { taskId: task.id, status: "PENDING", pointsEdited: false },
-    data: { points: d.defaultPoints },
+    data: { points: defaultPoints },
   });
 
   // For single (non-recurring) tasks, allow moving the date/time.

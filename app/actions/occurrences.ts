@@ -34,6 +34,9 @@ export async function updateOccurrencePointsAction(
     include: { task: true },
   });
   if (!occ) return { ok: false, error: "Task occurrence not found." };
+  if (occ.task.kind === "EVENT") {
+    return { ok: false, error: "Events don't have points." };
+  }
   if (occ.status === "COMPLETED") {
     return { ok: false, error: "Points are locked once a task is completed." };
   }
@@ -76,6 +79,9 @@ export async function completeOccurrenceAction(
     include: { task: true },
   });
   if (!occ) return { ok: false, error: "Task occurrence not found." };
+  if (occ.task.kind === "EVENT") {
+    return { ok: false, error: "Events don't have completions." };
+  }
   if (occ.status === "COMPLETED") {
     revalidateAll();
     return { ok: true };

@@ -81,7 +81,7 @@ export function TaskForm({
       location,
       kind,
       assigneeId,
-      defaultPoints: Number(points) || 0,
+      defaultPoints: kind === "EVENT" ? 0 : Number(points) || 0,
       date,
       // Only events are time-bound. Tasks are date-only, and all-day events
       // have no time either.
@@ -108,7 +108,15 @@ export function TaskForm({
     <Modal
       open={open}
       onClose={onClose}
-      title={editing ? "Edit task" : "New task"}
+      title={
+        kind === "EVENT"
+          ? editing
+            ? "Edit event"
+            : "New event"
+          : editing
+            ? "Edit task"
+            : "New task"
+      }
     >
       <form onSubmit={submit} className="space-y-4">
         <div>
@@ -158,7 +166,9 @@ export function TaskForm({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        {/* Events have no points, so a task gets the Date + Points pair while
+            an event gives the Date the full width. */}
+        <div className={kind === "EVENT" ? "" : "grid grid-cols-2 gap-3"}>
           <div>
             <label className="label">
               {lockSchedule ? "Starts (locked)" : "Date"}
@@ -172,17 +182,19 @@ export function TaskForm({
               required
             />
           </div>
-          <div>
-            <label className="label">Points on completion</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              className="input"
-              value={points}
-              onChange={(e) => setPoints(e.target.value)}
-            />
-          </div>
+          {kind === "TASK" && (
+            <div>
+              <label className="label">Points on completion</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                className="input"
+                value={points}
+                onChange={(e) => setPoints(e.target.value)}
+              />
+            </div>
+          )}
         </div>
 
         {kind === "EVENT" && (
@@ -317,7 +329,15 @@ export function TaskForm({
             Cancel
           </button>
           <button type="submit" className="btn-primary flex-1" disabled={pending}>
-            {pending ? "Saving…" : editing ? "Save changes" : "Create task"}
+            {pending
+              ? "Saving…"
+              : editing
+                ? kind === "EVENT"
+                  ? "Save event"
+                  : "Save changes"
+                : kind === "EVENT"
+                  ? "Create event"
+                  : "Create task"}
           </button>
         </div>
       </form>

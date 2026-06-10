@@ -23,7 +23,13 @@ import type { MemberDTO, OccurrenceDTO } from "@/lib/queries";
 import { TaskForm, type TaskFormInitial } from "@/components/TaskForm";
 import { Modal } from "@/components/Modal";
 import { AssigneeAvatar, EmptyState, PointsBadge } from "@/components/ui";
-import { CheckIcon, DragIcon, MoreIcon, PlusIcon } from "@/components/icons";
+import {
+  CalendarIcon,
+  CheckIcon,
+  DragIcon,
+  MoreIcon,
+  PlusIcon,
+} from "@/components/icons";
 import {
   completeOccurrenceAction,
   reorderOccurrencesAction,
@@ -296,6 +302,8 @@ function OccurrenceRow({
   // Only the assigner controls the points; the assignee sees them read-only.
   const canEditPoints = occ.assigner.id === currentUserId;
   const skipped = occ.status === "SKIPPED";
+  // Events are calendar entries: no completion, no points.
+  const isEvent = occ.kind === "EVENT";
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: occ.id });
   const [pending, startTransition] = useTransition();
@@ -421,6 +429,13 @@ function OccurrenceRow({
         >
           —
         </span>
+      ) : isEvent ? (
+        <span
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-primary"
+          aria-hidden
+        >
+          <CalendarIcon width={15} height={15} />
+        </span>
       ) : (
         <button
           onClick={toggleComplete}
@@ -457,7 +472,7 @@ function OccurrenceRow({
         {meta && <div className="truncate text-xs text-muted">{meta}</div>}
       </button>
 
-      {!skipped && (editingPts && canEditPoints ? (
+      {!skipped && !isEvent && (editingPts && canEditPoints ? (
         <div className="flex items-center gap-1">
           <input
             type="number"
@@ -589,12 +604,15 @@ function DetailsModal({
   const when = [occ.dateLabel, occ.allDay ? "All day" : occ.timeLabel]
     .filter(Boolean)
     .join(" · ");
+  // Events have no completion, so they only carry a status when skipped.
   const statusLabel =
     occ.status === "COMPLETED"
       ? "Completed"
       : occ.status === "SKIPPED"
         ? "Skipped"
-        : "To do";
+        : occ.kind === "EVENT"
+          ? null
+          : "To do";
 
   return (
     <Modal open={open} onClose={onClose} title={occ.title}>
@@ -603,9 +621,11 @@ function DetailsModal({
           <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-zinc-500">
             {occ.kind}
           </span>
-          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-zinc-500">
-            {statusLabel}
-          </span>
+          {statusLabel && (
+            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-zinc-500">
+              {statusLabel}
+            </span>
+          )}
           {occ.isRecurring && (
             <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-500">
               ↻ Repeats
