@@ -37,6 +37,9 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
   // An empty assignee means the task is left for anyone / no one.
   const assigneeId = d.assigneeId ? d.assigneeId : null;
   if (assigneeId) {
+    if (assigneeId === user.id) {
+      return { ok: false, error: "You can't assign a task to yourself." };
+    }
     const assignee = await prisma.user.findFirst({
       where: { id: assigneeId, householdId: user.householdId },
     });
@@ -119,6 +122,9 @@ export async function updateTaskAction(
   // An empty assignee means the task is left for anyone / no one.
   const assigneeId = d.assigneeId ? d.assigneeId : null;
   if (assigneeId) {
+    if (assigneeId === task.assignerId) {
+      return { ok: false, error: "You can't assign a task to its creator." };
+    }
     const assignee = await prisma.user.findFirst({
       where: { id: assigneeId, householdId: user.householdId },
     });
