@@ -37,13 +37,8 @@ export async function updateOccurrencePointsAction(
   if (occ.status === "COMPLETED") {
     return { ok: false, error: "Points are locked once a task is completed." };
   }
-  // Only the assigner controls the points; the assignee can't change their own reward.
-  if (occ.task.assignerId !== user.id) {
-    return {
-      ok: false,
-      error: "Only the person who assigned this task can change its points.",
-    };
-  }
+  // Any household member can adjust points on any task. Points still count
+  // against the assigner's weekly budget, so the gate below stays tied to them.
 
   const tz = user.household.timezone;
   // Unassigned ("Anyone") tasks consume no one's budget, so they are never gated.
