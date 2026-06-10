@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { MemberDTO, TaskListItemDTO } from "@/lib/queries";
 import { TaskForm, type TaskFormInitial } from "@/components/TaskForm";
-import { Avatar, EmptyState, PointsBadge } from "@/components/ui";
+import { AssigneeAvatar, EmptyState, PointsBadge } from "@/components/ui";
 import { MoreIcon, PlusIcon } from "@/components/icons";
 import { deleteTaskAction, setTaskActiveAction } from "@/app/actions/tasks";
 
@@ -117,7 +117,7 @@ function TaskRow({
       </div>
 
       <PointsBadge points={task.defaultPoints} />
-      <Avatar name={task.assignee.name} color={task.assignee.color} size={26} />
+      <AssigneeAvatar member={task.assignee} size={26} />
 
       <div className="relative">
         <button

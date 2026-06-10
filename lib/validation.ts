@@ -27,7 +27,7 @@ export const taskSchema = z.object({
   description: z.string().trim().max(2000).optional().or(z.literal("")),
   location: z.string().trim().max(200).optional().or(z.literal("")),
   kind: z.enum(["EVENT", "TASK"]),
-  assigneeId: z.string().min(1),
+  assigneeId: z.string().optional(),
   defaultPoints: z.coerce.number().int().min(0).max(100),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   time: z

@@ -26,7 +26,7 @@ export interface OccurrenceDTO {
   allDay: boolean;
   isRecurring: boolean;
   pointsEdited: boolean;
-  assignee: MemberDTO;
+  assignee: MemberDTO | null;
   assigner: MemberDTO;
   completedByName: string | null;
   sortOrder: number;
@@ -80,7 +80,7 @@ function toDTO(o: OccurrenceRow, tz: string): OccurrenceDTO {
     allDay: o.task.allDay,
     isRecurring: o.task.isRecurring,
     pointsEdited: o.pointsEdited,
-    assignee: o.task.assignee,
+    assignee: o.task.assignee ?? null,
     assigner: o.task.assigner,
     completedByName: o.completedBy?.name ?? null,
     sortOrder: o.sortOrder,
@@ -113,7 +113,7 @@ export interface TaskListItemDTO {
   kind: "EVENT" | "TASK";
   defaultPoints: number;
   active: boolean;
-  assignee: MemberDTO;
+  assignee: MemberDTO | null;
   assigner: MemberDTO;
   scheduleLabel: string;
   initial: TaskFormInitial;
@@ -170,7 +170,7 @@ export async function getTasksForManage(
       description: t.description ?? "",
       location: t.location ?? "",
       kind: t.kind,
-      assigneeId: t.assigneeId,
+      assigneeId: t.assigneeId ?? "",
       defaultPoints: t.defaultPoints,
       date,
       time,

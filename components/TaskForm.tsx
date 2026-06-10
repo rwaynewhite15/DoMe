@@ -142,6 +142,7 @@ export function TaskForm({
               value={assigneeId}
               onChange={(e) => setAssigneeId(e.target.value)}
             >
+              <option value="">Anyone (no one)</option>
               {members.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}

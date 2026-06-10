@@ -33,6 +33,26 @@ export function Avatar({
   );
 }
 
+/** Avatar for a task's assignee, or a dashed "Anyone" marker when unassigned. */
+export function AssigneeAvatar({
+  member,
+  size = 26,
+}: {
+  member: { name: string; color: string } | null;
+  size?: number;
+}) {
+  if (member) return <Avatar name={member.name} color={member.color} size={size} />;
+  return (
+    <span
+      title="Anyone"
+      className="inline-flex shrink-0 items-center justify-center rounded-full border border-dashed border-zinc-300 font-semibold text-zinc-400"
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.34) }}
+    >
+      Any
+    </span>
+  );
+}
+
 export function Dot({ color }: { color: string }) {
   return (
     <span

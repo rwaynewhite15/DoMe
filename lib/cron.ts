@@ -45,6 +45,7 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
       select: {
         points: true,
         completedAt: true,
+        completedById: true,
         task: { select: { assigneeId: true } },
       },
     });
@@ -56,7 +57,9 @@ export async function runDailyDigest(): Promise<DailyDigestResult> {
     const todayMap: Record<string, number> = {};
     const weekMap: Record<string, number> = {};
     for (const o of completed) {
-      const uid = o.task.assigneeId;
+      // Unassigned ("anyone") tasks credit whoever completed them.
+      const uid = o.task.assigneeId ?? o.completedById;
+      if (!uid) continue;
       weekMap[uid] = (weekMap[uid] ?? 0) + o.points;
       if (o.completedAt && o.completedAt >= todayStart && o.completedAt <= todayEnd) {
         todayMap[uid] = (todayMap[uid] ?? 0) + o.points;

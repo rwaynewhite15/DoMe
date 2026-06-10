@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { formatInTimeZone } from "date-fns-tz";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import {
@@ -8,6 +9,7 @@ import {
   getWeeklyUsage,
   isInWindow,
 } from "@/lib/budget";
+import { localDateTimeToUtc } from "@/lib/dates";
 import { sendEmail, taskCompletedEmail } from "@/lib/email";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -129,6 +131,53 @@ export async function skipOccurrenceAction(
   await prisma.taskOccurrence.update({
     where: { id: occ.id },
     data: { status: skip ? "SKIPPED" : "PENDING" },
+  });
+  revalidateAll();
+  return { ok: true };
+}
+
+/**
+ * Move a single (non-recurring) occurrence to a different calendar day,
+ * preserving its local time-of-day. Recurring instances are not movable
+ * because the daily materialization would recreate them on the original day.
+ */
+export async function rescheduleOccurrenceAction(
+  occurrenceId: string,
+  newDayKey: string,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(newDayKey)) {
+    return { ok: false, error: "Invalid date." };
+  }
+
+  const occ = await prisma.taskOccurrence.findFirst({
+    where: { id: occurrenceId, task: { householdId: user.householdId } },
+    include: { task: true },
+  });
+  if (!occ) return { ok: false, error: "Task occurrence not found." };
+  if (occ.task.isRecurring) {
+    return {
+      ok: false,
+      error: "Repeating tasks can’t be moved to another day. Edit the series instead.",
+    };
+  }
+
+  const tz = user.household.timezone;
+  const time = occ.task.allDay
+    ? undefined
+    : formatInTimeZone(occ.date, tz, "HH:mm");
+  const newDate = localDateTimeToUtc(newDayKey, time, tz, occ.task.allDay);
+  if (newDate.getTime() === occ.date.getTime()) return { ok: true };
+
+  // A non-recurring task has a single occurrence, so keep the parent task's
+  // startAt in sync — otherwise re-materialization would recreate the old day.
+  await prisma.taskOccurrence.update({
+    where: { id: occ.id },
+    data: { date: newDate },
+  });
+  await prisma.task.update({
+    where: { id: occ.task.id },
+    data: { startAt: newDate },
   });
   revalidateAll();
   return { ok: true };
