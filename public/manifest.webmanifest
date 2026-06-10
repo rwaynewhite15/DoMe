@@ -1,0 +1,19 @@
+{
+  "name": "DoMe — shared household planner",
+  "short_name": "DoMe",
+  "description": "Plan, prioritize, and earn points for tasks and events together.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f4f5",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

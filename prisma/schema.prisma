@@ -1,0 +1,114 @@
+// DoMe — Prisma schema (PostgreSQL / Neon)
+// Pooled connection for the app (DATABASE_URL), direct connection for migrations (DIRECT_URL).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum TaskKind {
+  EVENT
+  TASK
+}
+
+enum OccurrenceStatus {
+  PENDING
+  COMPLETED
+  SKIPPED
+}
+
+model Household {
+  id        String   @id @default(cuid())
+  name      String
+  timezone  String   @default("America/Denver")
+  createdAt DateTime @default(now())
+
+  users User[]
+  tasks Task[]
+}
+
+model User {
+  id               String   @id @default(cuid())
+  householdId      String
+  household        Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  email            String   @unique
+  name             String
+  passwordHash     String
+  color            String   @default("#6366f1")
+  notifyOnComplete Boolean  @default(true)
+  dailyDigest      Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  assignedTasks        Task[]            @relation("Assigner")
+  tasksToDo            Task[]            @relation("Assignee")
+  completedOccurrences TaskOccurrence[]  @relation("CompletedBy")
+  notifications        NotificationLog[]
+
+  @@index([householdId])
+}
+
+model Task {
+  id             String    @id @default(cuid())
+  householdId    String
+  household      Household  @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?
+  location       String?
+  kind           TaskKind   @default(TASK)
+  assignerId     String
+  assigner       User       @relation("Assigner", fields: [assignerId], references: [id])
+  assigneeId     String
+  assignee       User       @relation("Assignee", fields: [assigneeId], references: [id])
+  defaultPoints  Int        @default(0)
+  isRecurring    Boolean    @default(false)
+  recurrenceRule String?
+  startAt        DateTime
+  endAt          DateTime?
+  allDay         Boolean    @default(false)
+  active         Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  occurrences TaskOccurrence[]
+
+  @@index([householdId])
+  @@index([assignerId])
+  @@index([assigneeId])
+}
+
+model TaskOccurrence {
+  id            String           @id @default(cuid())
+  taskId        String
+  task          Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  date          DateTime
+  points        Int              @default(0)
+  pointsEdited  Boolean          @default(false)
+  sortOrder     Int              @default(0)
+  status        OccurrenceStatus @default(PENDING)
+  completedAt   DateTime?
+  completedById String?
+  completedBy   User?            @relation("CompletedBy", fields: [completedById], references: [id])
+  notes         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@unique([taskId, date])
+  @@index([date])
+  @@index([status])
+}
+
+model NotificationLog {
+  id      String   @id @default(cuid())
+  userId  String
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type    String
+  forDate String
+  sentAt  DateTime @default(now())
+
+  @@unique([userId, type, forDate])
+}
