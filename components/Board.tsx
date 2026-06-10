@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
-  closestCenter,
+  closestCorners,
   PointerSensor,
   TouchSensor,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -20,11 +21,12 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { MemberDTO, OccurrenceDTO } from "@/lib/queries";
 import { TaskForm } from "@/components/TaskForm";
-import { Avatar, EmptyState, PointsBadge } from "@/components/ui";
+import { AssigneeAvatar, EmptyState, PointsBadge } from "@/components/ui";
 import { CheckIcon, DragIcon, MoreIcon, PlusIcon } from "@/components/icons";
 import {
   completeOccurrenceAction,
   reorderOccurrencesAction,
+  rescheduleOccurrenceAction,
   skipOccurrenceAction,
   uncompleteOccurrenceAction,
   updateOccurrencePointsAction,
@@ -36,6 +38,24 @@ export interface DayGroup {
   label: string;
   isToday: boolean;
   occurrences: OccurrenceDTO[];
+}
+
+interface DayState {
+  key: string;
+  label: string;
+  isToday: boolean;
+  items: OccurrenceDTO[];
+}
+
+const DAY_PREFIX = "day:";
+
+function toState(days: DayGroup[]): DayState[] {
+  return days.map((d) => ({
+    key: d.key,
+    label: d.label,
+    isToday: d.isToday,
+    items: d.occurrences,
+  }));
 }
 
 export function Board({
@@ -51,13 +71,124 @@ export function Board({
   defaultDate: string;
   showAdd?: boolean;
 }) {
+  const router = useRouter();
   const [formOpen, setFormOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Local (optimistic) copy of the day groups, re-synced from props when the
+  // server data changes (render-phase pattern, no effect).
+  const signature = days
+    .map(
+      (d) =>
+        d.key +
+        ":" +
+        d.occurrences
+          .map((o) => `${o.id}.${o.status}.${o.points}.${o.sortOrder}`)
+          .join(","),
+    )
+    .join("|");
+  const [state, setState] = useState<DayState[]>(() => toState(days));
+  const [prevSig, setPrevSig] = useState(signature);
+  if (signature !== prevSig) {
+    setPrevSig(signature);
+    setState(toState(days));
+  }
+
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 180, tolerance: 6 },
+    }),
+  );
+
+  function dayKeyOfItem(id: string): string | undefined {
+    return state.find((d) => d.items.some((i) => i.id === id))?.key;
+  }
+
+  function onDragEnd(e: DragEndEvent) {
+    const activeId = String(e.active.id);
+    const overId = e.over ? String(e.over.id) : null;
+    if (!overId) return;
+
+    const fromKey = dayKeyOfItem(activeId);
+    if (!fromKey) return;
+    const toKey = overId.startsWith(DAY_PREFIX)
+      ? overId.slice(DAY_PREFIX.length)
+      : dayKeyOfItem(overId);
+    if (!toKey) return;
+
+    // Same day → reorder.
+    if (fromKey === toKey) {
+      const day = state.find((d) => d.key === toKey)!;
+      const oldIndex = day.items.findIndex((i) => i.id === activeId);
+      const overIndex = overId.startsWith(DAY_PREFIX)
+        ? day.items.length - 1
+        : day.items.findIndex((i) => i.id === overId);
+      if (oldIndex < 0 || overIndex < 0 || oldIndex === overIndex) return;
+      const items = arrayMove(day.items, oldIndex, overIndex);
+      setState((prev) => prev.map((d) => (d.key === toKey ? { ...d, items } : d)));
+      reorderOccurrencesAction(items.map((i) => i.id)).then(() =>
+        router.refresh(),
+      );
+      return;
+    }
+
+    // Different day → reschedule. Only one-off items can change days.
+    const occ = state
+      .find((d) => d.key === fromKey)!
+      .items.find((i) => i.id === activeId)!;
+    if (occ.isRecurring) {
+      setNotice(
+        "Repeating tasks can’t be moved to another day. Edit the series to change its schedule.",
+      );
+      return;
+    }
+
+    setState((prev) => {
+      const next = prev.map((d) => ({ ...d, items: [...d.items] }));
+      const from = next.find((d) => d.key === fromKey)!;
+      const to = next.find((d) => d.key === toKey)!;
+      from.items = from.items.filter((i) => i.id !== activeId);
+      const overIndex = overId.startsWith(DAY_PREFIX)
+        ? to.items.length
+        : to.items.findIndex((i) => i.id === overId);
+      to.items.splice(overIndex < 0 ? to.items.length : overIndex, 0, occ);
+      return next;
+    });
+
+    rescheduleOccurrenceAction(activeId, toKey).then((r) => {
+      if (!r.ok) setNotice(r.error);
+      router.refresh();
+    });
+  }
 
   return (
     <div className="space-y-5">
-      {days.map((day) => (
-        <DayColumn key={day.key} day={day} />
-      ))}
+      {notice && (
+        <div
+          className="fixed inset-x-0 bottom-24 z-40 mx-auto w-fit max-w-[90%] cursor-pointer rounded-full bg-zinc-900 px-4 py-2 text-center text-sm text-white shadow-lg md:bottom-8"
+          role="status"
+          onClick={() => setNotice(null)}
+        >
+          {notice}
+        </div>
+      )}
+
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragEnd={onDragEnd}
+      >
+        {state.map((day) => (
+          <DayColumn key={day.key} day={day} />
+        ))}
+      </DndContext>
 
       {showAdd && (
         <>
@@ -82,38 +213,8 @@ export function Board({
   );
 }
 
-function DayColumn({ day }: { day: DayGroup }) {
-  const router = useRouter();
-  const signature = day.occurrences
-    .map((o) => `${o.id}:${o.status}:${o.points}:${o.sortOrder}`)
-    .join("|");
-
-  // Sync local (optimistic) order from props when server data changes,
-  // using the render-phase pattern instead of an effect.
-  const [items, setItems] = useState(day.occurrences);
-  const [prevSig, setPrevSig] = useState(signature);
-  if (signature !== prevSig) {
-    setPrevSig(signature);
-    setItems(day.occurrences);
-  }
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, {
-      activationConstraint: { delay: 180, tolerance: 6 },
-    }),
-  );
-
-  function onDragEnd(e: DragEndEvent) {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const oldIndex = items.findIndex((i) => i.id === active.id);
-    const newIndex = items.findIndex((i) => i.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) return;
-    const next = arrayMove(items, oldIndex, newIndex);
-    setItems(next);
-    reorderOccurrencesAction(next.map((i) => i.id)).then(() => router.refresh());
-  }
+function DayColumn({ day }: { day: DayState }) {
+  const { setNodeRef, isOver } = useDroppable({ id: DAY_PREFIX + day.key });
 
   return (
     <section>
@@ -128,26 +229,23 @@ function DayColumn({ day }: { day: DayGroup }) {
         </h2>
       </div>
 
-      {items.length === 0 ? (
-        <EmptyState>Nothing scheduled.</EmptyState>
-      ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={onDragEnd}
+      <SortableContext
+        items={day.items.map((i) => i.id)}
+        strategy={verticalListSortingStrategy}
+      >
+        <div
+          ref={setNodeRef}
+          className={`space-y-2 rounded-2xl transition-colors ${
+            isOver ? "bg-indigo-50/60 outline-dashed outline-2 outline-indigo-200" : ""
+          }`}
         >
-          <SortableContext
-            items={items.map((i) => i.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            <div className="space-y-2">
-              {items.map((occ) => (
-                <OccurrenceRow key={occ.id} occ={occ} />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
-      )}
+          {day.items.length === 0 ? (
+            <EmptyState>Nothing scheduled. Drop a task here.</EmptyState>
+          ) : (
+            day.items.map((occ) => <OccurrenceRow key={occ.id} occ={occ} />)
+          )}
+        </div>
+      </SortableContext>
     </section>
   );
 }
@@ -227,7 +325,7 @@ function OccurrenceRow({ occ }: { occ: OccurrenceDTO }) {
         className="touch-none cursor-grab p-1 text-zinc-300 hover:text-zinc-500"
         {...attributes}
         {...listeners}
-        aria-label="Drag to reorder"
+        aria-label="Drag to reorder or reschedule"
       >
         <DragIcon width={18} height={18} />
       </button>
@@ -289,7 +387,7 @@ function OccurrenceRow({ occ }: { occ: OccurrenceDTO }) {
         </button>
       )}
 
-      <Avatar name={occ.assignee.name} color={occ.assignee.color} size={26} />
+      <AssigneeAvatar member={occ.assignee} size={26} />
 
       <div className="relative">
         <button

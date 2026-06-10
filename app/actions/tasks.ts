@@ -34,11 +34,15 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
   const d = parsed.data;
   const tz = user.household.timezone;
 
-  const assignee = await prisma.user.findFirst({
-    where: { id: d.assigneeId, householdId: user.householdId },
-  });
-  if (!assignee) {
-    return { ok: false, error: "Assignee is not part of this household." };
+  // An empty assignee means the task is left for anyone / no one.
+  const assigneeId = d.assigneeId ? d.assigneeId : null;
+  if (assigneeId) {
+    const assignee = await prisma.user.findFirst({
+      where: { id: assigneeId, householdId: user.householdId },
+    });
+    if (!assignee) {
+      return { ok: false, error: "Assignee is not part of this household." };
+    }
   }
 
   const allDay = d.kind === "EVENT" ? !!d.allDay : false;
@@ -80,7 +84,7 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
       location: d.location || null,
       kind: d.kind,
       assignerId: user.id,
-      assigneeId: d.assigneeId,
+      assigneeId,
       defaultPoints: d.defaultPoints,
       isRecurring,
       recurrenceRule,
@@ -111,11 +115,15 @@ export async function updateTaskAction(
   });
   if (!task) return { ok: false, error: "Task not found." };
 
-  const assignee = await prisma.user.findFirst({
-    where: { id: d.assigneeId, householdId: user.householdId },
-  });
-  if (!assignee) {
-    return { ok: false, error: "Assignee is not part of this household." };
+  // An empty assignee means the task is left for anyone / no one.
+  const assigneeId = d.assigneeId ? d.assigneeId : null;
+  if (assigneeId) {
+    const assignee = await prisma.user.findFirst({
+      where: { id: assigneeId, householdId: user.householdId },
+    });
+    if (!assignee) {
+      return { ok: false, error: "Assignee is not part of this household." };
+    }
   }
 
   // Budget check for the new default points propagating to pending occurrences.
@@ -153,7 +161,7 @@ export async function updateTaskAction(
       description: d.description || null,
       location: d.location || null,
       kind: d.kind,
-      assigneeId: d.assigneeId,
+      assigneeId,
       defaultPoints: d.defaultPoints,
     },
   });

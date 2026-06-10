@@ -62,8 +62,8 @@ model Task {
   kind           TaskKind   @default(TASK)
   assignerId     String
   assigner       User       @relation("Assigner", fields: [assignerId], references: [id])
-  assigneeId     String
-  assignee       User       @relation("Assignee", fields: [assigneeId], references: [id])
+  assigneeId     String?
+  assignee       User?      @relation("Assignee", fields: [assigneeId], references: [id])
   defaultPoints  Int        @default(0)
   isRecurring    Boolean    @default(false)
   recurrenceRule String?

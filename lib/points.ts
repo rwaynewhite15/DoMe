@@ -34,12 +34,18 @@ export async function getLeaderboard(
 
   const completed = await prisma.taskOccurrence.findMany({
     where: { status: "COMPLETED", task: { householdId } },
-    select: { points: true, task: { select: { assigneeId: true } } },
+    select: {
+      points: true,
+      completedById: true,
+      task: { select: { assigneeId: true } },
+    },
   });
 
   const totals: Record<string, number> = {};
   for (const o of completed) {
-    const uid = o.task.assigneeId;
+    // Unassigned ("anyone") tasks credit whoever completed them.
+    const uid = o.task.assigneeId ?? o.completedById;
+    if (!uid) continue;
     totals[uid] = (totals[uid] ?? 0) + o.points;
   }
 
@@ -69,6 +75,7 @@ export async function getTrend(
     select: {
       points: true,
       completedAt: true,
+      completedById: true,
       task: { select: { assigneeId: true } },
     },
   });
@@ -90,7 +97,9 @@ export async function getTrend(
 
   const totals: Record<string, number> = {};
   for (const o of completed) {
-    const uid = o.task.assigneeId;
+    // Unassigned ("anyone") tasks credit whoever completed them.
+    const uid = o.task.assigneeId ?? o.completedById;
+    if (!uid) continue;
     totals[uid] = (totals[uid] ?? 0) + o.points;
     if (!o.completedAt) continue;
     const key = localDayKey(o.completedAt, tz);
