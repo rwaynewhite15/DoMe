@@ -36,6 +36,7 @@ export const taskSchema = z.object({
     .optional()
     .or(z.literal("")),
   allDay: z.boolean().optional(),
+  rollover: z.boolean().optional(),
   freq: z.enum(["NONE", "DAILY", "WEEKLY", "MONTHLY"]),
   interval: z.coerce.number().int().min(1).max(52).optional(),
   weekdays: z.array(z.coerce.number().int().min(0).max(6)).optional(),

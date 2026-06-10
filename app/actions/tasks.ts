@@ -59,6 +59,8 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
     weekdays: d.weekdays,
   } as RecurrenceInput);
   const isRecurring = recurrenceRule !== null;
+  // "Keep until done" only applies to non-recurring tasks (not events).
+  const rollover = d.kind === "TASK" && !isRecurring ? !!d.rollover : false;
 
   // Budget check (only points placed inside the current rolling window count).
   // Unassigned ("Anyone") tasks consume no one's budget, so skip it.
@@ -95,6 +97,7 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
       defaultPoints: d.defaultPoints,
       isRecurring,
       recurrenceRule,
+      rollover,
       startAt,
       allDay,
     },
@@ -165,6 +168,9 @@ export async function updateTaskAction(
     }
   }
 
+  // "Keep until done" only applies to non-recurring tasks (not events).
+  const rollover = d.kind === "TASK" && !task.isRecurring ? !!d.rollover : false;
+
   await prisma.task.update({
     where: { id: task.id },
     data: {
@@ -174,6 +180,7 @@ export async function updateTaskAction(
       kind: d.kind,
       assigneeId,
       defaultPoints: d.defaultPoints,
+      rollover,
     },
   });
 

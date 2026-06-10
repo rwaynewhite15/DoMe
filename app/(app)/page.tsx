@@ -1,5 +1,9 @@
 import { requireUser } from "@/lib/auth";
-import { getMembers, getOccurrencesInRange } from "@/lib/queries";
+import {
+  getCarryoverOccurrences,
+  getMembers,
+  getOccurrencesInRange,
+} from "@/lib/queries";
 import { getDailyEarned } from "@/lib/points";
 import {
   endOfLocalDay,
@@ -19,16 +23,17 @@ export default async function TodayPage() {
   const hid = user.householdId;
   const now = new Date();
 
-  const [members, earned, occurrences] = await Promise.all([
+  const dayStart = startOfLocalDay(now, tz);
+  const [members, earned, todayOccurrences, carryovers] = await Promise.all([
     getMembers(hid),
     getDailyEarned(hid, tz),
-    getOccurrencesInRange(
-      hid,
-      startOfLocalDay(now, tz),
-      endOfLocalDay(now, tz),
-      tz,
-    ),
+    getOccurrencesInRange(hid, dayStart, endOfLocalDay(now, tz), tz),
+    // "Keep until done" tasks left unfinished from earlier days surface here.
+    getCarryoverOccurrences(hid, dayStart, tz),
   ]);
+
+  // Overdue carry-overs lead today's list so they're not forgotten.
+  const occurrences = [...carryovers, ...todayOccurrences];
 
   const today: DayGroup = {
     key: localDayKey(now, tz),
