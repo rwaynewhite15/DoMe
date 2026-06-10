@@ -170,6 +170,7 @@ export async function getTasksForManage(
       description: t.description ?? "",
       location: t.location ?? "",
       kind: t.kind,
+      assignerId: t.assignerId,
       assigneeId: t.assigneeId ?? "",
       defaultPoints: t.defaultPoints,
       date,

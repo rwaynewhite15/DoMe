@@ -37,6 +37,9 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
   // An empty assignee means the task is left for anyone / no one.
   const assigneeId = d.assigneeId ? d.assigneeId : null;
   if (assigneeId) {
+    if (assigneeId === user.id) {
+      return { ok: false, error: "You can't assign a task to yourself." };
+    }
     const assignee = await prisma.user.findFirst({
       where: { id: assigneeId, householdId: user.householdId },
     });
@@ -55,7 +58,8 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
   const isRecurring = recurrenceRule !== null;
 
   // Budget check (only points placed inside the current rolling window count).
-  if (d.defaultPoints > 0) {
+  // Unassigned ("Anyone") tasks consume no one's budget, so skip it.
+  if (assigneeId && d.defaultPoints > 0) {
     const draft = {
       startAt,
       isRecurring,
@@ -118,6 +122,9 @@ export async function updateTaskAction(
   // An empty assignee means the task is left for anyone / no one.
   const assigneeId = d.assigneeId ? d.assigneeId : null;
   if (assigneeId) {
+    if (assigneeId === task.assignerId) {
+      return { ok: false, error: "You can't assign a task to its creator." };
+    }
     const assignee = await prisma.user.findFirst({
       where: { id: assigneeId, householdId: user.householdId },
     });
@@ -127,7 +134,8 @@ export async function updateTaskAction(
   }
 
   // Budget check for the new default points propagating to pending occurrences.
-  if (d.defaultPoints > 0) {
+  // Unassigned ("Anyone") tasks consume no one's budget, so skip it.
+  if (assigneeId && d.defaultPoints > 0) {
     const { start, end } = weekWindow(tz);
     const inWindow = await prisma.taskOccurrence.findMany({
       where: {

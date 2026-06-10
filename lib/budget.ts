@@ -27,7 +27,7 @@ interface UsageOpts {
 /**
  * Sum of points an assigner has committed to occurrences inside the current
  * rolling week window. Completed occurrences still count (the budget was spent);
- * skipped ones do not.
+ * skipped ones do not. Unassigned ("Anyone") tasks consume no one's budget.
  */
 export async function getWeeklyUsage(
   userId: string,
@@ -42,6 +42,7 @@ export async function getWeeklyUsage(
       ...(opts.excludeOccurrenceId ? { id: { not: opts.excludeOccurrenceId } } : {}),
       task: {
         assignerId: userId,
+        assigneeId: { not: null },
         active: true,
         ...(opts.excludeTaskId ? { id: { not: opts.excludeTaskId } } : {}),
       },

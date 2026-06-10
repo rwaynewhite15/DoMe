@@ -186,7 +186,7 @@ export function Board({
         onDragEnd={onDragEnd}
       >
         {state.map((day) => (
-          <DayColumn key={day.key} day={day} />
+          <DayColumn key={day.key} day={day} currentUserId={currentUserId} />
         ))}
       </DndContext>
 
@@ -213,7 +213,13 @@ export function Board({
   );
 }
 
-function DayColumn({ day }: { day: DayState }) {
+function DayColumn({
+  day,
+  currentUserId,
+}: {
+  day: DayState;
+  currentUserId: string;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: DAY_PREFIX + day.key });
 
   return (
@@ -242,7 +248,13 @@ function DayColumn({ day }: { day: DayState }) {
           {day.items.length === 0 ? (
             <EmptyState>Nothing scheduled. Drop a task here.</EmptyState>
           ) : (
-            day.items.map((occ) => <OccurrenceRow key={occ.id} occ={occ} />)
+            day.items.map((occ) => (
+              <OccurrenceRow
+                key={occ.id}
+                occ={occ}
+                currentUserId={currentUserId}
+              />
+            ))
           )}
         </div>
       </SortableContext>
@@ -250,15 +262,39 @@ function DayColumn({ day }: { day: DayState }) {
   );
 }
 
-function OccurrenceRow({ occ }: { occ: OccurrenceDTO }) {
+function OccurrenceRow({
+  occ,
+  currentUserId,
+}: {
+  occ: OccurrenceDTO;
+  currentUserId: string;
+}) {
   const router = useRouter();
+  // Only the assigner controls the points; the assignee sees them read-only.
+  const canEditPoints = occ.assigner.id === currentUserId;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: occ.id });
   const [pending, startTransition] = useTransition();
   const [editingPts, setEditingPts] = useState(false);
   const [pts, setPts] = useState(String(occ.points));
   const [menuOpen, setMenuOpen] = useState(false);
-  const done = occ.status === "COMPLETED";
+
+  // Optimistic mirrors of server state so check-off and points edits show
+  // immediately, then reconcile when router.refresh() lands. Re-synced from
+  // props using the render-phase pattern (no effect).
+  const [optDone, setOptDone] = useState(occ.status === "COMPLETED");
+  const [prevStatus, setPrevStatus] = useState(occ.status);
+  if (occ.status !== prevStatus) {
+    setPrevStatus(occ.status);
+    setOptDone(occ.status === "COMPLETED");
+  }
+  const [optPoints, setOptPoints] = useState(occ.points);
+  const [prevPoints, setPrevPoints] = useState(occ.points);
+  if (occ.points !== prevPoints) {
+    setPrevPoints(occ.points);
+    setOptPoints(occ.points);
+  }
+  const done = optDone;
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -267,22 +303,30 @@ function OccurrenceRow({ occ }: { occ: OccurrenceDTO }) {
   };
 
   function toggleComplete() {
+    const next = !optDone;
+    setOptDone(next);
     startTransition(async () => {
-      const r = done
-        ? await uncompleteOccurrenceAction(occ.id)
-        : await completeOccurrenceAction(occ.id);
+      const r = next
+        ? await completeOccurrenceAction(occ.id)
+        : await uncompleteOccurrenceAction(occ.id);
       if (r.ok) router.refresh();
+      else setOptDone(!next);
     });
   }
 
   function savePoints() {
     const n = Number(pts);
+    if (!Number.isFinite(n)) return;
+    const prev = optPoints;
+    setOptPoints(n);
+    setEditingPts(false);
     startTransition(async () => {
       const r = await updateOccurrencePointsAction(occ.id, n);
       if (r.ok) {
-        setEditingPts(false);
         router.refresh();
       } else {
+        setOptPoints(prev);
+        setPts(String(prev));
         alert(r.error);
       }
     });
@@ -354,7 +398,7 @@ function OccurrenceRow({ occ }: { occ: OccurrenceDTO }) {
         {meta && <div className="truncate text-xs text-muted">{meta}</div>}
       </div>
 
-      {editingPts ? (
+      {editingPts && canEditPoints ? (
         <div className="flex items-center gap-1">
           <input
             type="number"
@@ -373,18 +417,28 @@ function OccurrenceRow({ occ }: { occ: OccurrenceDTO }) {
             Save
           </button>
         </div>
-      ) : (
+      ) : canEditPoints ? (
         <button
-          onClick={() => !done && setEditingPts(true)}
+          onClick={() => {
+            if (done) return;
+            setPts(String(optPoints));
+            setEditingPts(true);
+          }}
           className="shrink-0"
           title={done ? "Points locked" : "Edit points"}
         >
-          {occ.points > 0 ? (
-            <PointsBadge points={occ.points} muted={done} />
+          {optPoints > 0 ? (
+            <PointsBadge points={optPoints} muted={done} />
           ) : (
             !done && <span className="text-xs text-zinc-400">+ pts</span>
           )}
         </button>
+      ) : (
+        optPoints > 0 && (
+          <span className="shrink-0" title="Set by the assigner">
+            <PointsBadge points={optPoints} muted={done} />
+          </span>
+        )
       )}
 
       <AssigneeAvatar member={occ.assignee} size={26} />

@@ -14,6 +14,7 @@ export interface TaskFormInitial {
   description: string;
   location: string;
   kind: "TASK" | "EVENT";
+  assignerId: string;
   assigneeId: string;
   defaultPoints: number;
   date: string;
@@ -47,11 +48,14 @@ export function TaskForm({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  // You can't assign a task to yourself: the creator (assigner) is excluded
+  // from the list and is never the default.
+  const assignerId = initial?.assignerId ?? currentUserId;
+  const assignableMembers = members.filter((m) => m.id !== assignerId);
+
   const [title, setTitle] = useState(initial?.title ?? "");
   const [kind, setKind] = useState<"TASK" | "EVENT">(initial?.kind ?? "TASK");
-  const [assigneeId, setAssigneeId] = useState(
-    initial?.assigneeId ?? currentUserId,
-  );
+  const [assigneeId, setAssigneeId] = useState(initial?.assigneeId ?? "");
   const [points, setPoints] = useState(String(initial?.defaultPoints ?? 0));
   const [date, setDate] = useState(initial?.date ?? defaultDate);
   const [allDay, setAllDay] = useState(initial?.allDay ?? false);
@@ -143,7 +147,7 @@ export function TaskForm({
               onChange={(e) => setAssigneeId(e.target.value)}
             >
               <option value="">Anyone (no one)</option>
-              {members.map((m) => (
+              {assignableMembers.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
                 </option>
