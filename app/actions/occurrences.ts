@@ -39,7 +39,8 @@ export async function updateOccurrencePointsAction(
   }
 
   const tz = user.household.timezone;
-  if (isInWindow(occ.date, tz)) {
+  // Unassigned ("Anyone") tasks consume no one's budget, so they are never gated.
+  if (occ.task.assigneeId && isInWindow(occ.date, tz)) {
     const usedOther = await getWeeklyUsage(occ.task.assignerId, tz, {
       excludeOccurrenceId: occ.id,
     });

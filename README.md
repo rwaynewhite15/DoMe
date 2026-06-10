@@ -12,7 +12,7 @@ Calendar, plus a fair, customizable point system.
   A leaderboard and 30-day trend chart show who's on top.
 - ⚖️ **Fair budgets** — each person can assign at most **100 points per rolling 7-day
   week** (the window starts today and slides forward daily). The app blocks edits that
-  would go over budget.
+  would go over budget. Tasks left to **"Anyone" (unassigned) consume no one's budget**.
 - ✏️ **Editable until done** — points on any occurrence can be edited until it's
   completed, then they lock. Recurring tasks have a default point value, and each
   individual occurrence can be edited independently.

@@ -55,7 +55,8 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
   const isRecurring = recurrenceRule !== null;
 
   // Budget check (only points placed inside the current rolling window count).
-  if (d.defaultPoints > 0) {
+  // Unassigned ("Anyone") tasks consume no one's budget, so skip it.
+  if (assigneeId && d.defaultPoints > 0) {
     const draft = {
       startAt,
       isRecurring,
@@ -127,7 +128,8 @@ export async function updateTaskAction(
   }
 
   // Budget check for the new default points propagating to pending occurrences.
-  if (d.defaultPoints > 0) {
+  // Unassigned ("Anyone") tasks consume no one's budget, so skip it.
+  if (assigneeId && d.defaultPoints > 0) {
     const { start, end } = weekWindow(tz);
     const inWindow = await prisma.taskOccurrence.findMany({
       where: {
