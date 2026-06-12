@@ -28,6 +28,7 @@ import {
   completeOccurrenceAction,
   reorderOccurrencesAction,
   rescheduleOccurrenceAction,
+  setOccurrenceCompletedByAction,
   skipOccurrenceAction,
   uncompleteOccurrenceAction,
   updateOccurrencePointsAction,
@@ -188,7 +189,12 @@ export function Board({
         onDragEnd={onDragEnd}
       >
         {state.map((day) => (
-          <DayColumn key={day.key} day={day} onEdit={setEditing} />
+          <DayColumn
+            key={day.key}
+            day={day}
+            members={members}
+            onEdit={setEditing}
+          />
         ))}
       </DndContext>
 
@@ -228,9 +234,11 @@ export function Board({
 
 function DayColumn({
   day,
+  members,
   onEdit,
 }: {
   day: DayState;
+  members: MemberDTO[];
   onEdit: (initial: TaskFormInitial) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: DAY_PREFIX + day.key });
@@ -262,7 +270,12 @@ function DayColumn({
             <EmptyState>Nothing scheduled. Drop a task here.</EmptyState>
           ) : (
             day.items.map((occ) => (
-              <OccurrenceRow key={occ.id} occ={occ} onEdit={onEdit} />
+              <OccurrenceRow
+                key={occ.id}
+                occ={occ}
+                members={members}
+                onEdit={onEdit}
+              />
             ))
           )}
         </div>
@@ -273,9 +286,11 @@ function DayColumn({
 
 function OccurrenceRow({
   occ,
+  members,
   onEdit,
 }: {
   occ: OccurrenceDTO;
+  members: MemberDTO[];
   onEdit: (initial: TaskFormInitial) => void;
 }) {
   const router = useRouter();
@@ -552,6 +567,7 @@ function OccurrenceRow({
 
     <DetailsModal
       occ={occ}
+      members={members}
       open={detailsOpen}
       onClose={() => setDetailsOpen(false)}
       onEdit={edit}
@@ -577,15 +593,46 @@ function DetailRow({
 
 function DetailsModal({
   occ,
+  members,
   open,
   onClose,
   onEdit,
 }: {
   occ: OccurrenceDTO;
+  members: MemberDTO[];
   open: boolean;
   onClose: () => void;
   onEdit: () => void;
 }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+
+  // Completion defaults to whoever checked it off, but it can be reattributed
+  // to the member who actually did the task. Re-synced from props with the
+  // render-phase pattern (no effect).
+  const [completedById, setCompletedById] = useState(occ.completedById ?? "");
+  const [prevCompletedById, setPrevCompletedById] = useState(
+    occ.completedById ?? "",
+  );
+  if ((occ.completedById ?? "") !== prevCompletedById) {
+    setPrevCompletedById(occ.completedById ?? "");
+    setCompletedById(occ.completedById ?? "");
+  }
+
+  function changeCompletedBy(id: string) {
+    const prev = completedById;
+    setCompletedById(id);
+    startTransition(async () => {
+      const r = await setOccurrenceCompletedByAction(occ.id, id);
+      if (r.ok) {
+        router.refresh();
+      } else {
+        setCompletedById(prev);
+        alert(r.error);
+      }
+    });
+  }
+
   const when = [occ.dateLabel, occ.allDay ? "All day" : occ.timeLabel]
     .filter(Boolean)
     .join(" · ");
@@ -624,8 +671,28 @@ function DetailsModal({
             {occ.points} pt{occ.points === 1 ? "" : "s"}
           </DetailRow>
         )}
-        {occ.completedByName && (
-          <DetailRow label="Completed by">{occ.completedByName}</DetailRow>
+        {occ.status === "COMPLETED" && (
+          <div className="flex items-center justify-between gap-4 py-1.5 text-sm">
+            <span className="shrink-0 text-muted">Completed by</span>
+            <select
+              className="max-w-[60%] rounded-lg border border-border px-2 py-1 text-sm font-medium text-zinc-800"
+              value={completedById}
+              disabled={pending}
+              onChange={(e) => changeCompletedBy(e.target.value)}
+              aria-label="Completed by"
+            >
+              {!completedById && (
+                <option value="" disabled>
+                  Select…
+                </option>
+              )}
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
         )}
 
         {occ.description ? (

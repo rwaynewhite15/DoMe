@@ -33,6 +33,7 @@ export interface OccurrenceDTO {
   carriedOver: boolean;
   assignee: MemberDTO | null;
   assigner: MemberDTO;
+  completedById: string | null;
   completedByName: string | null;
   sortOrder: number;
   /** Pre-built form state for editing the underlying task from the board. */
@@ -138,6 +139,7 @@ function toDTO(o: OccurrenceRow, tz: string): OccurrenceDTO {
     carriedOver: false,
     assignee: o.task.assignee ?? null,
     assigner: o.task.assigner,
+    completedById: o.completedById,
     completedByName: o.completedBy?.name ?? null,
     sortOrder: o.sortOrder,
     initial: buildTaskInitial(o.task, tz),
