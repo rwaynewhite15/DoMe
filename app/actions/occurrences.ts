@@ -104,6 +104,43 @@ export async function completeOccurrenceAction(
   return { ok: true };
 }
 
+/**
+ * Reassign who gets credit for completing an occurrence. Completion defaults to
+ * the person who checks it off, but anyone in the household can attribute it to
+ * the member who actually did it (e.g. checking off a task someone else
+ * finished). Points are tied to the assigner's budget, not the completer, so
+ * this never touches anyone's weekly budget — though for unassigned ("Anyone")
+ * tasks it does move who the earned points are credited to.
+ */
+export async function setOccurrenceCompletedByAction(
+  occurrenceId: string,
+  completedById: string,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  const occ = await prisma.taskOccurrence.findFirst({
+    where: { id: occurrenceId, task: { householdId: user.householdId } },
+  });
+  if (!occ) return { ok: false, error: "Task occurrence not found." };
+  if (occ.status !== "COMPLETED") {
+    return { ok: false, error: "Only a completed task has a completed-by." };
+  }
+
+  const member = await prisma.user.findFirst({
+    where: { id: completedById, householdId: user.householdId },
+    select: { id: true },
+  });
+  if (!member) {
+    return { ok: false, error: "That person isn't part of this household." };
+  }
+
+  await prisma.taskOccurrence.update({
+    where: { id: occ.id },
+    data: { completedById },
+  });
+  revalidateAll();
+  return { ok: true };
+}
+
 export async function uncompleteOccurrenceAction(
   occurrenceId: string,
 ): Promise<ActionResult> {
