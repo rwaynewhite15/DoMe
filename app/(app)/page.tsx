@@ -11,9 +11,8 @@ import {
   localDayLabel,
   startOfLocalDay,
 } from "@/lib/dates";
-import { Board, type DayGroup } from "@/components/Board";
-import { EarnedMeters } from "@/components/EarnedMeter";
-import { SectionTitle } from "@/components/ui";
+import { type DayGroup } from "@/components/Board";
+import { TodayView } from "@/components/TodayView";
 
 export const dynamic = "force-dynamic";
 
@@ -42,15 +41,6 @@ export default async function TodayPage() {
     occurrences,
   };
 
-  // Daily points: how many are up for grabs today (skipped ones don't count)
-  // and how many have already been earned by completing tasks.
-  const scheduledPoints = occurrences
-    .filter((o) => o.status !== "SKIPPED")
-    .reduce((sum, o) => sum + o.points, 0);
-  const earnedPoints = occurrences
-    .filter((o) => o.status === "COMPLETED")
-    .reduce((sum, o) => sum + o.points, 0);
-
   return (
     <div className="space-y-6">
       <div>
@@ -60,29 +50,13 @@ export default async function TodayPage() {
         <p className="text-sm text-muted">Here&apos;s your day.</p>
       </div>
 
-      <section>
-        <SectionTitle>Points earned today</SectionTitle>
-        <EarnedMeters earned={earned} />
-      </section>
-
-      <section>
-        <SectionTitle
-          action={
-            <span className="text-sm font-semibold tabular-nums text-zinc-700">
-              {earnedPoints}
-              <span className="font-medium text-muted">/{scheduledPoints} pts today</span>
-            </span>
-          }
-        >
-          Today&apos;s plan
-        </SectionTitle>
-        <Board
-          days={[today]}
-          members={members}
-          currentUserId={user.id}
-          defaultDate={localDayKey(now, tz)}
-        />
-      </section>
+      <TodayView
+        today={today}
+        members={members}
+        currentUserId={user.id}
+        defaultDate={localDayKey(now, tz)}
+        earned={earned}
+      />
     </div>
   );
 }
