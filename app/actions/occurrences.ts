@@ -144,19 +144,22 @@ export async function completeOccurrenceAction(
   }
 
   // Notify every household member who has opted in, regardless of who created
-  // or completed the task.
+  // or completed the task. Sent in parallel so completion doesn't block on a
+  // chain of sequential SMTP round-trips before the UI can reconcile.
   const recipients = await prisma.user.findMany({
     where: { householdId: user.householdId, notifyOnComplete: true },
   });
-  for (const recipient of recipients) {
-    const { subject, html } = taskCompletedEmail({
-      recipientName: recipient.name,
-      completerName: user.name,
-      taskTitle: occ.task.title,
-      points: occ.points,
-    });
-    await sendEmail({ to: recipient.email, subject, html });
-  }
+  await Promise.allSettled(
+    recipients.map((recipient) => {
+      const { subject, html } = taskCompletedEmail({
+        recipientName: recipient.name,
+        completerName: user.name,
+        taskTitle: occ.task.title,
+        points: occ.points,
+      });
+      return sendEmail({ to: recipient.email, subject, html });
+    }),
+  );
 
   revalidateAll();
   return { ok: true };

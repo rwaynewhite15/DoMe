@@ -194,6 +194,7 @@ export function Board({
             key={day.key}
             day={day}
             members={members}
+            currentUserId={currentUserId}
             onEdit={setEditing}
           />
         ))}
@@ -236,10 +237,12 @@ export function Board({
 function DayColumn({
   day,
   members,
+  currentUserId,
   onEdit,
 }: {
   day: DayState;
   members: MemberDTO[];
+  currentUserId: string;
   onEdit: (initial: TaskFormInitial) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: DAY_PREFIX + day.key });
@@ -275,6 +278,7 @@ function DayColumn({
                 key={occ.id}
                 occ={occ}
                 members={members}
+                currentUserId={currentUserId}
                 onEdit={onEdit}
               />
             ))
@@ -288,13 +292,18 @@ function DayColumn({
 function OccurrenceRow({
   occ,
   members,
+  currentUserId,
   onEdit,
 }: {
   occ: OccurrenceDTO;
   members: MemberDTO[];
+  currentUserId: string;
   onEdit: (initial: TaskFormInitial) => void;
 }) {
   const router = useRouter();
+  // Checking off defaults the completer to you, so we can show "Completed by"
+  // immediately rather than waiting for the server round-trip.
+  const myName = members.find((m) => m.id === currentUserId)?.name ?? null;
   // Any household member can adjust the points on any task.
   const canEditPoints = true;
   const skipped = occ.status === "SKIPPED";
@@ -327,6 +336,12 @@ function OccurrenceRow({
     setPrevQty(occ.quantity);
     setOptQty(occ.quantity);
   }
+  const [optCompletedBy, setOptCompletedBy] = useState(occ.completedByName);
+  const [prevCompletedBy, setPrevCompletedBy] = useState(occ.completedByName);
+  if (occ.completedByName !== prevCompletedBy) {
+    setPrevCompletedBy(occ.completedByName);
+    setOptCompletedBy(occ.completedByName);
+  }
   const done = optDone;
 
   const style = {
@@ -337,13 +352,20 @@ function OccurrenceRow({
 
   function toggleComplete() {
     const next = !optDone;
+    const prevCompletedBy = optCompletedBy;
     setOptDone(next);
+    // Optimistically credit yourself when checking off (and clear on undo).
+    setOptCompletedBy(next ? myName : null);
     startTransition(async () => {
       const r = next
         ? await completeOccurrenceAction(occ.id)
         : await uncompleteOccurrenceAction(occ.id);
-      if (r.ok) router.refresh();
-      else setOptDone(!next);
+      if (r.ok) {
+        router.refresh();
+      } else {
+        setOptDone(!next);
+        setOptCompletedBy(prevCompletedBy);
+      }
     });
   }
 
@@ -489,9 +511,9 @@ function OccurrenceRow({
             </span>
           )}
         </div>
-        {done && occ.completedByName ? (
+        {done && optCompletedBy ? (
           <div className="truncate text-xs font-medium text-emerald-600">
-            Completed by {occ.completedByName}
+            Completed by {optCompletedBy}
           </div>
         ) : (
           meta && <div className="truncate text-xs text-muted">{meta}</div>
