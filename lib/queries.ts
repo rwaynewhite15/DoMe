@@ -20,6 +20,14 @@ export interface OccurrenceDTO {
   location: string | null;
   kind: "EVENT" | "TASK";
   points: number;
+  /** Whether this task earns points per unit (e.g. loads of laundry). */
+  hasQuantity: boolean;
+  /** Units done for this occurrence (always 1 for non-quantity tasks). */
+  quantity: number;
+  /** Points earned per unit; multiply by quantity for the total. */
+  pointsPerUnit: number;
+  /** Optional unit label, e.g. "load". */
+  unit: string | null;
   status: "PENDING" | "COMPLETED" | "SKIPPED";
   dateISO: string;
   dateLabel: string;
@@ -86,6 +94,8 @@ function buildTaskInitial(
     assignerId: string;
     assigneeId: string | null;
     defaultPoints: number;
+    hasQuantity: boolean;
+    unit: string | null;
     startAt: Date;
     allDay: boolean;
     isRecurring: boolean;
@@ -104,6 +114,8 @@ function buildTaskInitial(
     assignerId: t.assignerId,
     assigneeId: t.assigneeId ?? "",
     defaultPoints: t.defaultPoints,
+    hasQuantity: t.hasQuantity,
+    unit: t.unit ?? "",
     date: formatInTimeZone(t.startAt, tz, "yyyy-MM-dd"),
     time: formatInTimeZone(t.startAt, tz, "HH:mm"),
     allDay: t.allDay,
@@ -124,6 +136,10 @@ function toDTO(o: OccurrenceRow, tz: string): OccurrenceDTO {
     location: o.task.location,
     kind: o.task.kind,
     points: o.points,
+    hasQuantity: o.task.hasQuantity,
+    quantity: o.quantity,
+    pointsPerUnit: o.task.defaultPoints,
+    unit: o.task.unit,
     status: o.status,
     dateISO: o.date.toISOString(),
     dateLabel: localDayLabel(o.date, tz),

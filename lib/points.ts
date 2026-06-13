@@ -15,9 +15,11 @@ export interface EarnedDTO {
 }
 
 /**
- * Points each member has earned by completing tasks today. The assignee earns;
- * unassigned ("Anyone") tasks credit whoever completed them. Buckets by
- * completedAt, matching the leaderboard/trend definition of "earned".
+ * Points each member has earned by completing tasks scheduled for today. The
+ * assignee earns; unassigned ("Anyone") tasks credit whoever completed them.
+ * Scoped to occurrences dated today, so an overdue / carried-over task finished
+ * today counts toward the day it was due — not today's total. (The leaderboard
+ * and trend still bucket by completedAt, which is the right lens for those.)
  */
 export async function getDailyEarned(
   householdId: string,
@@ -33,7 +35,7 @@ export async function getDailyEarned(
   const completed = await prisma.taskOccurrence.findMany({
     where: {
       status: "COMPLETED",
-      completedAt: { gte: startOfLocalDay(now, tz), lte: endOfLocalDay(now, tz) },
+      date: { gte: startOfLocalDay(now, tz), lte: endOfLocalDay(now, tz) },
       task: { householdId },
     },
     select: {

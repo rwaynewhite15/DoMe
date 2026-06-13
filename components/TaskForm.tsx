@@ -17,6 +17,8 @@ export interface TaskFormInitial {
   assignerId: string;
   assigneeId: string;
   defaultPoints: number;
+  hasQuantity: boolean;
+  unit: string;
   date: string;
   time: string;
   allDay: boolean;
@@ -58,6 +60,8 @@ export function TaskForm({
   const [kind, setKind] = useState<"TASK" | "EVENT">(initial?.kind ?? "TASK");
   const [assigneeId, setAssigneeId] = useState(initial?.assigneeId ?? "");
   const [points, setPoints] = useState(String(initial?.defaultPoints ?? 0));
+  const [hasQuantity, setHasQuantity] = useState(initial?.hasQuantity ?? false);
+  const [unit, setUnit] = useState(initial?.unit ?? "");
   const [date, setDate] = useState(initial?.date ?? defaultDate);
   const [allDay, setAllDay] = useState(initial?.allDay ?? false);
   const [time, setTime] = useState(initial?.time || "09:00");
@@ -84,6 +88,9 @@ export function TaskForm({
       kind,
       assigneeId,
       defaultPoints: Number(points) || 0,
+      // Quantity ("earn per unit") only applies to tasks, not events.
+      hasQuantity: kind === "TASK" ? hasQuantity : false,
+      unit: kind === "TASK" && hasQuantity ? unit.trim() : "",
       date,
       // Only events are time-bound. Tasks are date-only, and all-day events
       // have no time either.
@@ -177,7 +184,11 @@ export function TaskForm({
             />
           </div>
           <div>
-            <label className="label">Points on completion</label>
+            <label className="label">
+              {kind === "TASK" && hasQuantity
+                ? `Points per ${unit.trim() || "unit"}`
+                : "Points on completion"}
+            </label>
             <input
               type="number"
               min={0}
@@ -188,6 +199,40 @@ export function TaskForm({
             />
           </div>
         </div>
+
+        {kind === "TASK" && (
+          <div className="rounded-xl border border-border px-3 py-2.5">
+            <label className="flex items-start gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={hasQuantity}
+                onChange={(e) => setHasQuantity(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium text-zinc-700">
+                  Earn points per unit
+                </span>
+                <span className="block text-xs text-muted">
+                  Bump the count up when you do more than one (e.g. 3 loads of
+                  laundry) to earn the points for each.
+                </span>
+              </span>
+            </label>
+            {hasQuantity && (
+              <div className="mt-2.5">
+                <label className="label">Unit name (optional)</label>
+                <input
+                  className="input"
+                  value={unit}
+                  onChange={(e) => setUnit(e.target.value)}
+                  placeholder="e.g. load"
+                  maxLength={20}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {kind === "EVENT" && (
           <label className="flex items-center gap-2 text-sm">

@@ -61,6 +61,9 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
   const isRecurring = recurrenceRule !== null;
   // "Keep until done" only applies to non-recurring tasks (not events).
   const rollover = d.kind === "TASK" && !isRecurring ? !!d.rollover : false;
+  // Quantity ("earn per unit") only applies to tasks, not events.
+  const hasQuantity = d.kind === "TASK" ? !!d.hasQuantity : false;
+  const unit = hasQuantity && d.unit ? d.unit : null;
 
   // Budget check (only points placed inside the current rolling window count).
   // Unassigned ("Anyone") tasks consume no one's budget, so skip it.
@@ -95,6 +98,8 @@ export async function createTaskAction(input: unknown): Promise<ActionResult> {
       assignerId: user.id,
       assigneeId,
       defaultPoints: d.defaultPoints,
+      hasQuantity,
+      unit,
       isRecurring,
       recurrenceRule,
       rollover,
@@ -170,6 +175,9 @@ export async function updateTaskAction(
 
   // "Keep until done" only applies to non-recurring tasks (not events).
   const rollover = d.kind === "TASK" && !task.isRecurring ? !!d.rollover : false;
+  // Quantity ("earn per unit") only applies to tasks, not events.
+  const hasQuantity = d.kind === "TASK" ? !!d.hasQuantity : false;
+  const unit = hasQuantity && d.unit ? d.unit : null;
 
   await prisma.task.update({
     where: { id: task.id },
@@ -180,15 +188,34 @@ export async function updateTaskAction(
       kind: d.kind,
       assigneeId,
       defaultPoints: d.defaultPoints,
+      hasQuantity,
+      unit,
       rollover,
     },
   });
 
-  // Propagate new default to pending, un-edited occurrences.
-  await prisma.taskOccurrence.updateMany({
-    where: { taskId: task.id, status: "PENDING", pointsEdited: false },
-    data: { points: d.defaultPoints },
-  });
+  // Propagate the new per-unit points to pending, un-edited occurrences. For
+  // quantity tasks the occurrence total is per-unit × its own quantity, so each
+  // row is recomputed individually; otherwise a single updateMany suffices.
+  if (hasQuantity) {
+    const pending = await prisma.taskOccurrence.findMany({
+      where: { taskId: task.id, status: "PENDING", pointsEdited: false },
+      select: { id: true, quantity: true },
+    });
+    await prisma.$transaction(
+      pending.map((o) =>
+        prisma.taskOccurrence.update({
+          where: { id: o.id },
+          data: { points: d.defaultPoints * Math.max(1, o.quantity) },
+        }),
+      ),
+    );
+  } else {
+    await prisma.taskOccurrence.updateMany({
+      where: { taskId: task.id, status: "PENDING", pointsEdited: false },
+      data: { points: d.defaultPoints },
+    });
+  }
 
   // For single (non-recurring) tasks, allow moving the date/time.
   if (!task.isRecurring) {
