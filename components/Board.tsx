@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useOptimistic,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -33,6 +40,7 @@ import {
   skipOccurrenceAction,
   uncompleteOccurrenceAction,
   updateOccurrencePointsAction,
+  type ActionResult,
 } from "@/app/actions/occurrences";
 import { deleteTaskAction } from "@/app/actions/tasks";
 
@@ -61,6 +69,270 @@ function toState(days: DayGroup[]): DayState[] {
   }));
 }
 
+/* ------------------------------------------------------------------ *
+ * Optimistic occurrence store
+ *
+ * A single source of optimistic truth for a set of day groups, shared by the
+ * board (rows + drag/drop) and — on the home page — the points meters. Built on
+ * React's useOptimistic so every edit paints instantly and automatically
+ * reconciles to fresh server data once the action's transition settles, with no
+ * manual mirror/re-sync bookkeeping.
+ * ------------------------------------------------------------------ */
+
+type Patch =
+  | {
+      t: "complete";
+      id: string;
+      done: boolean;
+      completedById: string | null;
+      completedByName: string | null;
+    }
+  | { t: "points"; id: string; points: number }
+  | { t: "quantity"; id: string; quantity: number; points: number }
+  | { t: "skip"; id: string; skip: boolean }
+  | {
+      t: "completedBy";
+      id: string;
+      completedById: string;
+      completedByName: string | null;
+    }
+  | { t: "remove"; taskId: string }
+  | { t: "reorder"; dayKey: string; orderedIds: string[] }
+  | { t: "reschedule"; id: string; toKey: string; index: number | null };
+
+function mapItem(
+  days: DayState[],
+  id: string,
+  fn: (o: OccurrenceDTO) => OccurrenceDTO,
+): DayState[] {
+  return days.map((d) => ({
+    ...d,
+    items: d.items.map((o) => (o.id === id ? fn(o) : o)),
+  }));
+}
+
+function reduce(days: DayState[], p: Patch): DayState[] {
+  switch (p.t) {
+    case "complete":
+      return mapItem(days, p.id, (o) => ({
+        ...o,
+        status: p.done ? "COMPLETED" : "PENDING",
+        completedById: p.completedById,
+        completedByName: p.completedByName,
+      }));
+    case "points":
+      return mapItem(days, p.id, (o) => ({ ...o, points: p.points }));
+    case "quantity":
+      return mapItem(days, p.id, (o) => ({
+        ...o,
+        quantity: p.quantity,
+        points: p.points,
+      }));
+    case "skip":
+      return mapItem(days, p.id, (o) => ({
+        ...o,
+        status: p.skip ? "SKIPPED" : "PENDING",
+      }));
+    case "completedBy":
+      return mapItem(days, p.id, (o) => ({
+        ...o,
+        completedById: p.completedById,
+        completedByName: p.completedByName,
+      }));
+    case "remove":
+      return days.map((d) => ({
+        ...d,
+        items: d.items.filter((o) => o.taskId !== p.taskId),
+      }));
+    case "reorder":
+      return days.map((d) => {
+        if (d.key !== p.dayKey) return d;
+        const byId = new Map(d.items.map((o) => [o.id, o]));
+        const items = p.orderedIds
+          .map((id) => byId.get(id))
+          .filter((o): o is OccurrenceDTO => !!o);
+        return { ...d, items };
+      });
+    case "reschedule": {
+      let moved: OccurrenceDTO | undefined;
+      const without = days.map((d) => {
+        if (!d.items.some((o) => o.id === p.id)) return d;
+        moved = d.items.find((o) => o.id === p.id);
+        return { ...d, items: d.items.filter((o) => o.id !== p.id) };
+      });
+      if (!moved) return days;
+      const item = moved;
+      return without.map((d) => {
+        if (d.key !== p.toKey) return d;
+        const items = [...d.items];
+        const at =
+          p.index == null
+            ? items.length
+            : Math.max(0, Math.min(items.length, p.index));
+        items.splice(at, 0, item);
+        return { ...d, items };
+      });
+    }
+  }
+}
+
+interface OccStore {
+  days: DayState[];
+  /** Non-optimistic server truth, for diffing derived values like the meters. */
+  baseDays: DayState[];
+  members: MemberDTO[];
+  currentUserId: string;
+  pending: boolean;
+  notice: string | null;
+  setNotice: (n: string | null) => void;
+  complete: (occ: OccurrenceDTO, done: boolean) => void;
+  setPoints: (occ: OccurrenceDTO, points: number) => void;
+  setQuantity: (occ: OccurrenceDTO, quantity: number) => void;
+  skip: (occ: OccurrenceDTO, skip: boolean) => void;
+  setCompletedBy: (occ: OccurrenceDTO, memberId: string) => void;
+  remove: (taskId: string) => void;
+  reorder: (dayKey: string, orderedIds: string[]) => void;
+  reschedule: (occ: OccurrenceDTO, toKey: string, index: number | null) => void;
+}
+
+const StoreContext = createContext<OccStore | null>(null);
+
+function useOccurrences(): OccStore {
+  const ctx = useContext(StoreContext);
+  if (!ctx) throw new Error("useOccurrences must be used within OccurrencesProvider");
+  return ctx;
+}
+
+export function OccurrencesProvider({
+  days,
+  members,
+  currentUserId,
+  children,
+}: {
+  days: DayGroup[];
+  members: MemberDTO[];
+  currentUserId: string;
+  children: React.ReactNode;
+}) {
+  const router = useRouter();
+  const baseDays = toState(days);
+  const [optimisticDays, applyPatch] = useOptimistic(baseDays, reduce);
+  const [pending, startTransition] = useTransition();
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  // Apply the optimistic patches immediately, run the server action, then pull
+  // fresh data on success. On failure the optimistic state unwinds on its own
+  // when the transition ends — we just surface the error.
+  function run(
+    patches: Patch[],
+    action: () => Promise<ActionResult>,
+    onError: (msg: string) => void = setNotice,
+  ) {
+    startTransition(async () => {
+      for (const p of patches) applyPatch(p);
+      const r = await action();
+      if (r.ok) router.refresh();
+      else onError(r.error);
+    });
+  }
+
+  const nameOf = (id: string | null) =>
+    id ? (members.find((m) => m.id === id)?.name ?? null) : null;
+
+  const store: OccStore = {
+    days: optimisticDays,
+    baseDays,
+    members,
+    currentUserId,
+    pending,
+    notice,
+    setNotice,
+    complete: (occ, done) =>
+      run(
+        [
+          {
+            t: "complete",
+            id: occ.id,
+            done,
+            completedById: done ? currentUserId : null,
+            completedByName: done ? nameOf(currentUserId) : null,
+          },
+        ],
+        () =>
+          done
+            ? completeOccurrenceAction(occ.id)
+            : uncompleteOccurrenceAction(occ.id),
+      ),
+    setPoints: (occ, points) =>
+      run([{ t: "points", id: occ.id, points }], () =>
+        updateOccurrencePointsAction(occ.id, points),
+      ),
+    setQuantity: (occ, quantity) =>
+      run(
+        [
+          {
+            t: "quantity",
+            id: occ.id,
+            quantity,
+            points: occ.pointsPerUnit * quantity,
+          },
+        ],
+        () => setOccurrenceQuantityAction(occ.id, quantity),
+      ),
+    skip: (occ, skip) =>
+      run([{ t: "skip", id: occ.id, skip }], () =>
+        skipOccurrenceAction(occ.id, skip),
+      ),
+    setCompletedBy: (occ, memberId) =>
+      run(
+        [
+          {
+            t: "completedBy",
+            id: occ.id,
+            completedById: memberId,
+            completedByName: nameOf(memberId),
+          },
+        ],
+        () => setOccurrenceCompletedByAction(occ.id, memberId),
+      ),
+    remove: (taskId) =>
+      run([{ t: "remove", taskId }], () => deleteTaskAction(taskId)),
+    reorder: (dayKey, orderedIds) =>
+      run([{ t: "reorder", dayKey, orderedIds }], () =>
+        reorderOccurrencesAction(orderedIds),
+      ),
+    reschedule: (occ, toKey, index) =>
+      run([{ t: "reschedule", id: occ.id, toKey, index }], () =>
+        rescheduleOccurrenceAction(occ.id, toKey),
+      ),
+  };
+
+  return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;
+}
+
+/** Flatten a set of day groups into a single occurrence list. */
+export function flattenDays(days: DayState[]): OccurrenceDTO[] {
+  return days.flatMap((d) => d.items);
+}
+
+/** Hook for consumers (e.g. the points meters) that derive from the store. */
+export function useOccurrenceStore(): OccStore {
+  return useOccurrences();
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * Standalone board: owns its optimistic store. Used where the board stands on
+ * its own (e.g. the calendar). The home page instead shares one store across
+ * the board and the points meters via OccurrencesProvider + BoardCanvas.
+ */
 export function Board({
   days,
   members,
@@ -74,35 +346,24 @@ export function Board({
   defaultDate: string;
   showAdd?: boolean;
 }) {
-  const router = useRouter();
+  return (
+    <OccurrencesProvider days={days} members={members} currentUserId={currentUserId}>
+      <BoardCanvas defaultDate={defaultDate} showAdd={showAdd} />
+    </OccurrencesProvider>
+  );
+}
+
+export function BoardCanvas({
+  defaultDate,
+  showAdd = true,
+}: {
+  defaultDate: string;
+  showAdd?: boolean;
+}) {
+  const { days, members, currentUserId, notice, setNotice, reorder, reschedule } =
+    useOccurrences();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<TaskFormInitial | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  // Local (optimistic) copy of the day groups, re-synced from props when the
-  // server data changes (render-phase pattern, no effect).
-  const signature = days
-    .map(
-      (d) =>
-        d.key +
-        ":" +
-        d.occurrences
-          .map((o) => `${o.id}.${o.status}.${o.points}.${o.sortOrder}`)
-          .join(","),
-    )
-    .join("|");
-  const [state, setState] = useState<DayState[]>(() => toState(days));
-  const [prevSig, setPrevSig] = useState(signature);
-  if (signature !== prevSig) {
-    setPrevSig(signature);
-    setState(toState(days));
-  }
-
-  useEffect(() => {
-    if (!notice) return;
-    const t = setTimeout(() => setNotice(null), 4000);
-    return () => clearTimeout(t);
-  }, [notice]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -112,7 +373,7 @@ export function Board({
   );
 
   function dayKeyOfItem(id: string): string | undefined {
-    return state.find((d) => d.items.some((i) => i.id === id))?.key;
+    return days.find((d) => d.items.some((i) => i.id === id))?.key;
   }
 
   function onDragEnd(e: DragEndEvent) {
@@ -129,22 +390,19 @@ export function Board({
 
     // Same day → reorder.
     if (fromKey === toKey) {
-      const day = state.find((d) => d.key === toKey)!;
+      const day = days.find((d) => d.key === toKey)!;
       const oldIndex = day.items.findIndex((i) => i.id === activeId);
       const overIndex = overId.startsWith(DAY_PREFIX)
         ? day.items.length - 1
         : day.items.findIndex((i) => i.id === overId);
       if (oldIndex < 0 || overIndex < 0 || oldIndex === overIndex) return;
       const items = arrayMove(day.items, oldIndex, overIndex);
-      setState((prev) => prev.map((d) => (d.key === toKey ? { ...d, items } : d)));
-      reorderOccurrencesAction(items.map((i) => i.id)).then(() =>
-        router.refresh(),
-      );
+      reorder(toKey, items.map((i) => i.id));
       return;
     }
 
     // Different day → reschedule. Only one-off items can change days.
-    const occ = state
+    const occ = days
       .find((d) => d.key === fromKey)!
       .items.find((i) => i.id === activeId)!;
     if (occ.isRecurring) {
@@ -153,23 +411,11 @@ export function Board({
       );
       return;
     }
-
-    setState((prev) => {
-      const next = prev.map((d) => ({ ...d, items: [...d.items] }));
-      const from = next.find((d) => d.key === fromKey)!;
-      const to = next.find((d) => d.key === toKey)!;
-      from.items = from.items.filter((i) => i.id !== activeId);
-      const overIndex = overId.startsWith(DAY_PREFIX)
-        ? to.items.length
-        : to.items.findIndex((i) => i.id === overId);
-      to.items.splice(overIndex < 0 ? to.items.length : overIndex, 0, occ);
-      return next;
-    });
-
-    rescheduleOccurrenceAction(activeId, toKey).then((r) => {
-      if (!r.ok) setNotice(r.error);
-      router.refresh();
-    });
+    const to = days.find((d) => d.key === toKey)!;
+    const overIndex = overId.startsWith(DAY_PREFIX)
+      ? to.items.length
+      : to.items.findIndex((i) => i.id === overId);
+    reschedule(occ, toKey, overIndex < 0 ? null : overIndex);
   }
 
   return (
@@ -189,13 +435,8 @@ export function Board({
         collisionDetection={closestCorners}
         onDragEnd={onDragEnd}
       >
-        {state.map((day) => (
-          <DayColumn
-            key={day.key}
-            day={day}
-            members={members}
-            onEdit={setEditing}
-          />
+        {days.map((day) => (
+          <DayColumn key={day.key} day={day} onEdit={setEditing} />
         ))}
       </DndContext>
 
@@ -235,11 +476,9 @@ export function Board({
 
 function DayColumn({
   day,
-  members,
   onEdit,
 }: {
   day: DayState;
-  members: MemberDTO[];
   onEdit: (initial: TaskFormInitial) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: DAY_PREFIX + day.key });
@@ -271,12 +510,7 @@ function DayColumn({
             <EmptyState>Nothing scheduled. Drop a task here.</EmptyState>
           ) : (
             day.items.map((occ) => (
-              <OccurrenceRow
-                key={occ.id}
-                occ={occ}
-                members={members}
-                onEdit={onEdit}
-              />
+              <OccurrenceRow key={occ.id} occ={occ} onEdit={onEdit} />
             ))
           )}
         </div>
@@ -287,47 +521,22 @@ function DayColumn({
 
 function OccurrenceRow({
   occ,
-  members,
   onEdit,
 }: {
   occ: OccurrenceDTO;
-  members: MemberDTO[];
   onEdit: (initial: TaskFormInitial) => void;
 }) {
-  const router = useRouter();
+  const store = useOccurrences();
   // Any household member can adjust the points on any task.
   const canEditPoints = true;
+  const done = occ.status === "COMPLETED";
   const skipped = occ.status === "SKIPPED";
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: occ.id });
-  const [pending, startTransition] = useTransition();
   const [editingPts, setEditingPts] = useState(false);
   const [pts, setPts] = useState(String(occ.points));
   const [menuOpen, setMenuOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-
-  // Optimistic mirrors of server state so check-off and points edits show
-  // immediately, then reconcile when router.refresh() lands. Re-synced from
-  // props using the render-phase pattern (no effect).
-  const [optDone, setOptDone] = useState(occ.status === "COMPLETED");
-  const [prevStatus, setPrevStatus] = useState(occ.status);
-  if (occ.status !== prevStatus) {
-    setPrevStatus(occ.status);
-    setOptDone(occ.status === "COMPLETED");
-  }
-  const [optPoints, setOptPoints] = useState(occ.points);
-  const [prevPoints, setPrevPoints] = useState(occ.points);
-  if (occ.points !== prevPoints) {
-    setPrevPoints(occ.points);
-    setOptPoints(occ.points);
-  }
-  const [optQty, setOptQty] = useState(occ.quantity);
-  const [prevQty, setPrevQty] = useState(occ.quantity);
-  if (occ.quantity !== prevQty) {
-    setPrevQty(occ.quantity);
-    setOptQty(occ.quantity);
-  }
-  const done = optDone;
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -335,69 +544,27 @@ function OccurrenceRow({
     zIndex: isDragging ? 20 : undefined,
   };
 
-  function toggleComplete() {
-    const next = !optDone;
-    setOptDone(next);
-    startTransition(async () => {
-      const r = next
-        ? await completeOccurrenceAction(occ.id)
-        : await uncompleteOccurrenceAction(occ.id);
-      if (r.ok) router.refresh();
-      else setOptDone(!next);
-    });
-  }
-
   function savePoints() {
     const n = Number(pts);
     if (!Number.isFinite(n)) return;
-    const prev = optPoints;
-    setOptPoints(n);
     setEditingPts(false);
-    startTransition(async () => {
-      const r = await updateOccurrencePointsAction(occ.id, n);
-      if (r.ok) {
-        router.refresh();
-      } else {
-        setOptPoints(prev);
-        setPts(String(prev));
-        alert(r.error);
-      }
-    });
+    store.setPoints(occ, n);
   }
 
   function changeQty(next: number) {
     const q = Math.max(1, Math.min(99, next));
-    if (q === optQty || done) return;
-    const prevQ = optQty;
-    const prevP = optPoints;
-    setOptQty(q);
-    setOptPoints(occ.pointsPerUnit * q);
-    startTransition(async () => {
-      const r = await setOccurrenceQuantityAction(occ.id, q);
-      if (r.ok) {
-        router.refresh();
-      } else {
-        setOptQty(prevQ);
-        setOptPoints(prevP);
-        alert(r.error);
-      }
-    });
+    if (q === occ.quantity || done) return;
+    store.setQuantity(occ, q);
   }
 
   function skip() {
     setMenuOpen(false);
-    startTransition(async () => {
-      const r = await skipOccurrenceAction(occ.id, true);
-      if (r.ok) router.refresh();
-    });
+    store.skip(occ, true);
   }
 
   function unskip() {
     setMenuOpen(false);
-    startTransition(async () => {
-      const r = await skipOccurrenceAction(occ.id, false);
-      if (r.ok) router.refresh();
-    });
+    store.skip(occ, false);
   }
 
   function edit() {
@@ -409,10 +576,7 @@ function OccurrenceRow({
   function del() {
     setMenuOpen(false);
     if (!confirm("Delete this task and all of its occurrences?")) return;
-    startTransition(async () => {
-      const r = await deleteTaskAction(occ.taskId);
-      if (r.ok) router.refresh();
-    });
+    store.remove(occ.taskId);
   }
 
   const meta = [
@@ -450,8 +614,7 @@ function OccurrenceRow({
         </span>
       ) : (
         <button
-          onClick={toggleComplete}
-          disabled={pending}
+          onClick={() => store.complete(occ, !done)}
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
             done
               ? "border-emerald-500 bg-emerald-500 text-white"
@@ -503,28 +666,28 @@ function OccurrenceRow({
           <div className="flex items-center rounded-lg border border-border">
             <button
               type="button"
-              onClick={() => changeQty(optQty - 1)}
-              disabled={done || pending || optQty <= 1}
+              onClick={() => changeQty(occ.quantity - 1)}
+              disabled={done || occ.quantity <= 1}
               className="px-2 py-1 text-sm font-bold text-zinc-500 disabled:opacity-30"
               aria-label="One fewer"
             >
               −
             </button>
             <span className="min-w-[2.75rem] px-0.5 text-center text-xs font-semibold tabular-nums text-zinc-700">
-              {optQty}
+              {occ.quantity}
               {occ.unit ? ` ${occ.unit}` : ""}
             </span>
             <button
               type="button"
-              onClick={() => changeQty(optQty + 1)}
-              disabled={done || pending}
+              onClick={() => changeQty(occ.quantity + 1)}
+              disabled={done}
               className="px-2 py-1 text-sm font-bold text-zinc-500 disabled:opacity-30"
               aria-label="One more"
             >
               +
             </button>
           </div>
-          {optPoints > 0 && <PointsBadge points={optPoints} muted={done} />}
+          {occ.points > 0 && <PointsBadge points={occ.points} muted={done} />}
         </div>
       ) : !skipped && (editingPts && canEditPoints ? (
         <div className="flex items-center gap-1">
@@ -539,7 +702,6 @@ function OccurrenceRow({
           />
           <button
             onClick={savePoints}
-            disabled={pending}
             className="rounded-lg bg-primary px-2 py-1 text-xs font-semibold text-white"
           >
             Save
@@ -549,22 +711,22 @@ function OccurrenceRow({
         <button
           onClick={() => {
             if (done) return;
-            setPts(String(optPoints));
+            setPts(String(occ.points));
             setEditingPts(true);
           }}
           className="shrink-0"
           title={done ? "Points locked" : "Edit points"}
         >
-          {optPoints > 0 ? (
-            <PointsBadge points={optPoints} muted={done} />
+          {occ.points > 0 ? (
+            <PointsBadge points={occ.points} muted={done} />
           ) : (
             !done && <span className="text-xs text-zinc-400">+ pts</span>
           )}
         </button>
       ) : (
-        optPoints > 0 && (
+        occ.points > 0 && (
           <span className="shrink-0" title="Set by the assigner">
-            <PointsBadge points={optPoints} muted={done} />
+            <PointsBadge points={occ.points} muted={done} />
           </span>
         )
       ))}
@@ -621,7 +783,6 @@ function OccurrenceRow({
 
     <DetailsModal
       occ={occ}
-      members={members}
       open={detailsOpen}
       onClose={() => setDetailsOpen(false)}
       onEdit={edit}
@@ -647,45 +808,16 @@ function DetailRow({
 
 function DetailsModal({
   occ,
-  members,
   open,
   onClose,
   onEdit,
 }: {
   occ: OccurrenceDTO;
-  members: MemberDTO[];
   open: boolean;
   onClose: () => void;
   onEdit: () => void;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-
-  // Completion defaults to whoever checked it off, but it can be reattributed
-  // to the member who actually did the task. Re-synced from props with the
-  // render-phase pattern (no effect).
-  const [completedById, setCompletedById] = useState(occ.completedById ?? "");
-  const [prevCompletedById, setPrevCompletedById] = useState(
-    occ.completedById ?? "",
-  );
-  if ((occ.completedById ?? "") !== prevCompletedById) {
-    setPrevCompletedById(occ.completedById ?? "");
-    setCompletedById(occ.completedById ?? "");
-  }
-
-  function changeCompletedBy(id: string) {
-    const prev = completedById;
-    setCompletedById(id);
-    startTransition(async () => {
-      const r = await setOccurrenceCompletedByAction(occ.id, id);
-      if (r.ok) {
-        router.refresh();
-      } else {
-        setCompletedById(prev);
-        alert(r.error);
-      }
-    });
-  }
+  const store = useOccurrences();
 
   const when = [occ.dateLabel, occ.allDay ? "All day" : occ.timeLabel]
     .filter(Boolean)
@@ -737,17 +869,17 @@ function DetailsModal({
             <span className="shrink-0 text-muted">Completed by</span>
             <select
               className="max-w-[60%] rounded-lg border border-border px-2 py-1 text-sm font-medium text-zinc-800"
-              value={completedById}
-              disabled={pending}
-              onChange={(e) => changeCompletedBy(e.target.value)}
+              value={occ.completedById ?? ""}
+              disabled={store.pending}
+              onChange={(e) => store.setCompletedBy(occ, e.target.value)}
               aria-label="Completed by"
             >
-              {!completedById && (
+              {!occ.completedById && (
                 <option value="" disabled>
                   Select…
                 </option>
               )}
-              {members.map((m) => (
+              {store.members.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
                 </option>
