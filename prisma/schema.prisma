@@ -65,6 +65,11 @@ model Task {
   assigneeId     String?
   assignee       User?     @relation("Assignee", fields: [assigneeId], references: [id])
   defaultPoints  Int       @default(0)
+  // When true, defaultPoints is read as "points per unit" and each occurrence
+  // tracks a quantity (e.g. 3 loads of laundry) that multiplies the points.
+  hasQuantity    Boolean   @default(false)
+  // Optional label for the unit being counted, e.g. "load". Display-only.
+  unit           String?
   isRecurring    Boolean   @default(false)
   recurrenceRule String?
   rollover       Boolean   @default(false)
@@ -87,6 +92,9 @@ model TaskOccurrence {
   taskId        String
   task          Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
   date          DateTime
+  // Units done for this occurrence (quantity tasks). points is the total,
+  // i.e. the task's per-unit points × quantity. Always 1 for normal tasks.
+  quantity      Int              @default(1)
   points        Int              @default(0)
   pointsEdited  Boolean          @default(false)
   sortOrder     Int              @default(0)

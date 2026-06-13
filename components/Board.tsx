@@ -29,6 +29,7 @@ import {
   reorderOccurrencesAction,
   rescheduleOccurrenceAction,
   setOccurrenceCompletedByAction,
+  setOccurrenceQuantityAction,
   skipOccurrenceAction,
   uncompleteOccurrenceAction,
   updateOccurrencePointsAction,
@@ -320,6 +321,12 @@ function OccurrenceRow({
     setPrevPoints(occ.points);
     setOptPoints(occ.points);
   }
+  const [optQty, setOptQty] = useState(occ.quantity);
+  const [prevQty, setPrevQty] = useState(occ.quantity);
+  if (occ.quantity !== prevQty) {
+    setPrevQty(occ.quantity);
+    setOptQty(occ.quantity);
+  }
   const done = optDone;
 
   const style = {
@@ -353,6 +360,25 @@ function OccurrenceRow({
       } else {
         setOptPoints(prev);
         setPts(String(prev));
+        alert(r.error);
+      }
+    });
+  }
+
+  function changeQty(next: number) {
+    const q = Math.max(1, Math.min(99, next));
+    if (q === optQty || done) return;
+    const prevQ = optQty;
+    const prevP = optPoints;
+    setOptQty(q);
+    setOptPoints(occ.pointsPerUnit * q);
+    startTransition(async () => {
+      const r = await setOccurrenceQuantityAction(occ.id, q);
+      if (r.ok) {
+        router.refresh();
+      } else {
+        setOptQty(prevQ);
+        setOptPoints(prevP);
         alert(r.error);
       }
     });
@@ -472,7 +498,35 @@ function OccurrenceRow({
         )}
       </button>
 
-      {!skipped && (editingPts && canEditPoints ? (
+      {!skipped && occ.hasQuantity ? (
+        <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex items-center rounded-lg border border-border">
+            <button
+              type="button"
+              onClick={() => changeQty(optQty - 1)}
+              disabled={done || pending || optQty <= 1}
+              className="px-2 py-1 text-sm font-bold text-zinc-500 disabled:opacity-30"
+              aria-label="One fewer"
+            >
+              −
+            </button>
+            <span className="min-w-[2.75rem] px-0.5 text-center text-xs font-semibold tabular-nums text-zinc-700">
+              {optQty}
+              {occ.unit ? ` ${occ.unit}` : ""}
+            </span>
+            <button
+              type="button"
+              onClick={() => changeQty(optQty + 1)}
+              disabled={done || pending}
+              className="px-2 py-1 text-sm font-bold text-zinc-500 disabled:opacity-30"
+              aria-label="One more"
+            >
+              +
+            </button>
+          </div>
+          {optPoints > 0 && <PointsBadge points={optPoints} muted={done} />}
+        </div>
+      ) : !skipped && (editingPts && canEditPoints ? (
         <div className="flex items-center gap-1">
           <input
             type="number"
@@ -666,6 +720,13 @@ function DetailsModal({
           {occ.assignee?.name ?? "Anyone"}
         </DetailRow>
         <DetailRow label="Created by">{occ.assigner.name}</DetailRow>
+        {occ.hasQuantity && (
+          <DetailRow label="Quantity">
+            {occ.quantity}
+            {occ.unit ? ` ${occ.unit}${occ.quantity === 1 ? "" : "s"}` : ""}
+            {occ.pointsPerUnit > 0 ? ` · ${occ.pointsPerUnit} pt${occ.pointsPerUnit === 1 ? "" : "s"} each` : ""}
+          </DetailRow>
+        )}
         {occ.points > 0 && (
           <DetailRow label="Points">
             {occ.points} pt{occ.points === 1 ? "" : "s"}

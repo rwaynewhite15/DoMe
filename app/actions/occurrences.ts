@@ -62,6 +62,44 @@ export async function updateOccurrencePointsAction(
   return { ok: true };
 }
 
+/** Upper bound on how many units one occurrence can log, to keep things sane. */
+const MAX_QUANTITY = 99;
+
+/**
+ * Set how many units were done for a quantity task (e.g. 3 loads of laundry).
+ * The occurrence's points are recomputed as the task's per-unit points ×
+ * quantity. Quantity tasks are open-ended, so this deliberately does NOT gate on
+ * the weekly budget — doing extra work can push the assigner past their cap.
+ */
+export async function setOccurrenceQuantityAction(
+  occurrenceId: string,
+  quantity: number,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) {
+    return { ok: false, error: `Quantity must be between 1 and ${MAX_QUANTITY}.` };
+  }
+
+  const occ = await prisma.taskOccurrence.findFirst({
+    where: { id: occurrenceId, task: { householdId: user.householdId } },
+    include: { task: true },
+  });
+  if (!occ) return { ok: false, error: "Task occurrence not found." };
+  if (!occ.task.hasQuantity) {
+    return { ok: false, error: "This task doesn't track a quantity." };
+  }
+  if (occ.status === "COMPLETED") {
+    return { ok: false, error: "Quantity is locked once a task is completed." };
+  }
+
+  await prisma.taskOccurrence.update({
+    where: { id: occ.id },
+    data: { quantity, points: occ.task.defaultPoints * quantity },
+  });
+  revalidateAll();
+  return { ok: true };
+}
+
 export async function completeOccurrenceAction(
   occurrenceId: string,
 ): Promise<ActionResult> {
